@@ -1,12 +1,39 @@
-## Craft
+## Craftoingo
 
-Minecraft clone for Windows, Mac OS X and Linux. Just a few thousand lines of C using modern OpenGL (shaders). Online multiplayer support is included using a Python-based server.
+A Minecraft-inspired silly sandbox for Windows, Mac OS X and Linux, built on
+[Craft](https://github.com/fogleman/Craft) by Michael Fogleman — just a few
+thousand lines of C using modern OpenGL (shaders). Online multiplayer support
+is included using a Python-based server.
 
 http://www.michaelfogleman.com/craft/
 
 ![Screenshot](https://i.imgur.com/SH7wcas.png)
 
-### Features
+### The Oingo Additions
+
+Ten-ish things Craftoingo adds on top of Craft. Type `/help` in game to see
+them all.
+
+1. **Splash title roulette** — a different questionable window title on every
+   launch ("Craftoingo: gravity sold separately").
+2. **`/boom`** — demolition punch mode. Punching a block blows a crater in the
+   landscape. Punch near your own feet to launch yourself skyward.
+3. **Trampoline chests** — chests are spring-loaded. Land on one and find out.
+   Standing on them is not an option.
+4. **`/moon`** — moon gravity. Combine with `/boom` for an improvised rocket
+   program.
+5. **`/zoomies`** — triple speed with a wide-angle FOV kick. Gotta go fast.
+6. **`/rainbow`** — every block you place auto-cycles through all 32 colors.
+   Instant tasteful architecture.
+7. **`/party`** — the sun does a full lap of the sky every 12 seconds. Disco
+   lighting for your build session.
+8. **`/cloudwalk`** — clouds become solid. The sky is a floor now (they sit at
+   y 64-72; a moon-gravity boom launch gets you up there).
+9. **`/day`, `/night`, `/time H`** — boss the sun around.
+10. **`/joke`** — certified block-related dad jokes in chat.
+11. **`/sethome` and `/home`** — mark a spot, teleport back to it.
+
+### Features (inherited from Craft)
 
 * Simple but nice looking terrain generation using perlin / simplex noise.
 * More than 10 types of blocks and more can be added easily.
@@ -57,8 +84,8 @@ Use the following commands in place of the ones described in the next section.
 Once you have the dependencies (see above), run the following commands in your
 terminal.
 
-    git clone https://github.com/fogleman/Craft.git
-    cd Craft
+    git clone https://github.com/kirbosh/craftoingo.git
+    cd craftoingo
     cmake .
     make
     ./craft
@@ -148,6 +175,38 @@ Teleport to the specified chunk.
     /spawn
 
 Teleport back to the spawn point.
+
+#### Craftoingo Commands
+
+    /help
+
+List the Craftoingo extras in chat.
+
+    /boom
+    /party
+    /moon
+    /zoomies
+    /rainbow
+    /cloudwalk
+
+Toggle demolition punches, disco daylight, moon gravity, triple speed,
+rainbow block placement, and solid clouds. All of them stack. You have been
+warned.
+
+    /day
+    /night
+    /time H
+
+Set the time of day (H is an hour from 0 to 24).
+
+    /joke
+
+Receive one (1) block-related dad joke.
+
+    /sethome
+    /home
+
+Remember the current spot and teleport back to it later.
 
 ### Screenshot
 

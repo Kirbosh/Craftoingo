@@ -147,6 +147,15 @@ typedef struct {
     int server_port;
     int day_length;
     int time_changed;
+    int boom_mode;
+    int zoomies;
+    int moon_gravity;
+    int rainbow_mode;
+    int rainbow_index;
+    int party_mode;
+    float boost_dy;
+    int has_home;
+    State home;
     Block block0;
     Block block1;
     Block copy0;
@@ -2024,7 +2033,7 @@ void parse_command(const char *buffer, int forward) {
     char server_addr[MAX_ADDR_LENGTH];
     int server_port = DEFAULT_PORT;
     char filename[MAX_PATH_LENGTH];
-    int radius, count, xc, yc, zc;
+    int radius, count, xc, yc, zc, hour;
     if (sscanf(buffer, "/identity %128s %128s", username, token) == 2) {
         db_auth_set(username, token);
         add_message("Successfully imported identity token!");
@@ -2070,6 +2079,113 @@ void parse_command(const char *buffer, int forward) {
         }
         else {
             add_message("Viewing distance must be between 1 and 24.");
+        }
+    }
+    else if (strcmp(buffer, "/help") == 0) {
+        add_message("-- CRAFTOINGO EXTRAS --");
+        add_message("/boom /party /moon /zoomies /rainbow /cloudwalk");
+        add_message("/joke /day /night /time H /sethome /home");
+        add_message("Also: chests are trampolines. You're welcome.");
+    }
+    else if (strcmp(buffer, "/boom") == 0) {
+        g->boom_mode = !g->boom_mode;
+        add_message(g->boom_mode ?
+            "Boom mode ON. Punch responsibly." :
+            "Boom mode OFF. The landscape thanks you.");
+    }
+    else if (strcmp(buffer, "/party") == 0) {
+        g->party_mode = !g->party_mode;
+        g->day_length = g->party_mode ? 12 : DAY_LENGTH;
+        add_message(g->party_mode ?
+            "PARTY MODE! The sun is the DJ now." :
+            "Party's over. The sun sobers up.");
+    }
+    else if (strcmp(buffer, "/moon") == 0) {
+        g->moon_gravity = !g->moon_gravity;
+        add_message(g->moon_gravity ?
+            "Moon gravity ON. One small step..." :
+            "Moon gravity OFF. Welcome back to Earth.");
+    }
+    else if (strcmp(buffer, "/zoomies") == 0) {
+        g->zoomies = !g->zoomies;
+        add_message(g->zoomies ?
+            "ZOOMIES! Gotta go fast." :
+            "Zoomies off. Walking like a person again.");
+    }
+    else if (strcmp(buffer, "/rainbow") == 0) {
+        g->rainbow_mode = !g->rainbow_mode;
+        add_message(g->rainbow_mode ?
+            "Rainbow mode ON. Every block a surprise." :
+            "Rainbow mode OFF. Back to picking colors yourself.");
+    }
+    else if (strcmp(buffer, "/cloudwalk") == 0) {
+        cloudwalk_mode = !cloudwalk_mode;
+        add_message(cloudwalk_mode ?
+            "Cloudwalking ON. The sky is a floor now." :
+            "Cloudwalking OFF. Clouds are a lie again.");
+    }
+    else if (strcmp(buffer, "/joke") == 0) {
+        static const char *jokes[][2] = {
+            {"Why did the player dump the chest?",
+             "It kept springing surprises on them."},
+            {"What's a block's favorite music?",
+             "Rock. Obviously."},
+            {"I'd tell you a TNT joke...",
+             "...but it would bomb. (try /boom)"},
+            {"What do you call a sad glass block?",
+             "A pane in the neck."},
+            {"How do trees get online?",
+             "They log in."},
+            {"Why don't clouds ever apologize?",
+             "They let it blow over. (/cloudwalk to confront them)"},
+            {"Why did the dirt block feel safe?",
+             "It was surrounded by groundies."},
+            {"What did the moon say to the jumper?",
+             "You mean the world to me. (/moon)"},
+        };
+        int joke_count = sizeof(jokes) / sizeof(jokes[0]);
+        int i = rand() % joke_count;
+        add_message(jokes[i][0]);
+        add_message(jokes[i][1]);
+    }
+    else if (strcmp(buffer, "/day") == 0) {
+        glfwSetTime(g->day_length * 0.3);
+        g->time_changed = 1;
+        add_message("Rise and shine!");
+    }
+    else if (strcmp(buffer, "/night") == 0) {
+        glfwSetTime(g->day_length * 0.98);
+        g->time_changed = 1;
+        add_message("Lights out!");
+    }
+    else if (sscanf(buffer, "/time %d", &hour) == 1) {
+        if (hour >= 0 && hour <= 24) {
+            glfwSetTime(g->day_length * (hour / 24.0));
+            g->time_changed = 1;
+            add_message("Time is a construct anyway.");
+        }
+        else {
+            add_message("Pick an hour between 0 and 24.");
+        }
+    }
+    else if (strcmp(buffer, "/sethome") == 0) {
+        g->home = g->players->state;
+        g->has_home = 1;
+        add_message("Home set. /home teleports you back.");
+    }
+    else if (strcmp(buffer, "/home") == 0) {
+        if (g->has_home) {
+            State *s = &g->players->state;
+            s->x = g->home.x;
+            s->y = g->home.y;
+            s->z = g->home.z;
+            s->rx = g->home.rx;
+            s->ry = g->home.ry;
+            force_chunks(g->players);
+            add_message("There's no place like /home.");
+        }
+        else {
+            add_message("No home set. Use /sethome first.");
         }
     }
     else if (strcmp(buffer, "/copy") == 0) {
@@ -2128,6 +2244,28 @@ void parse_command(const char *buffer, int forward) {
     }
 }
 
+void explode(int cx, int cy, int cz, int radius) {
+    for (int x = cx - radius; x <= cx + radius; x++) {
+        for (int y = cy - radius; y <= cy + radius; y++) {
+            for (int z = cz - radius; z <= cz + radius; z++) {
+                int dx = x - cx;
+                int dy = y - cy;
+                int dz = z - cz;
+                if (dx * dx + dy * dy + dz * dz > radius * radius) {
+                    continue;
+                }
+                if (y <= 0 || y >= 256) {
+                    continue;
+                }
+                if (is_destructable(get_block(x, y, z))) {
+                    set_block(x, y, z, 0);
+                    record_block(x, y, z, 0);
+                }
+            }
+        }
+    }
+}
+
 void on_light() {
     State *s = &g->players->state;
     int hx, hy, hz;
@@ -2142,10 +2280,31 @@ void on_left_click() {
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
-        set_block(hx, hy, hz, 0);
-        record_block(hx, hy, hz, 0);
-        if (is_plant(get_block(hx, hy + 1, hz))) {
-            set_block(hx, hy + 1, hz, 0);
+        if (g->boom_mode) {
+            static const char *boom_lines[] = {
+                "KABOOM!",
+                "Boom goes the dynamite.",
+                "That block had a family!",
+                "Physics has left the chat.",
+                "Ka-blammo!",
+            };
+            int boom_count = sizeof(boom_lines) / sizeof(boom_lines[0]);
+            explode(hx, hy, hz, 3);
+            float d = sqrtf(
+                powf(hx - s->x, 2) +
+                powf(hy - s->y, 2) +
+                powf(hz - s->z, 2));
+            if (d < 6) {
+                g->boost_dy = 16;
+            }
+            add_message(boom_lines[rand() % boom_count]);
+        }
+        else {
+            set_block(hx, hy, hz, 0);
+            record_block(hx, hy, hz, 0);
+            if (is_plant(get_block(hx, hy + 1, hz))) {
+                set_block(hx, hy + 1, hz, 0);
+            }
         }
     }
 }
@@ -2156,8 +2315,13 @@ void on_right_click() {
     int hw = hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_obstacle(hw)) {
         if (!player_intersects_block(2, s->x, s->y, s->z, hx, hy, hz)) {
-            set_block(hx, hy, hz, items[g->item_index]);
-            record_block(hx, hy, hz, items[g->item_index]);
+            int w = items[g->item_index];
+            if (g->rainbow_mode) {
+                w = COLOR_00 + g->rainbow_index;
+                g->rainbow_index = (g->rainbow_index + 1) % 32;
+            }
+            set_block(hx, hy, hz, w);
+            record_block(hx, hy, hz, w);
         }
     }
 }
@@ -2361,6 +2525,19 @@ void on_mouse_button(GLFWwindow *window, int button, int action, int mods) {
 }
 
 void create_window() {
+    static const char *titles[] = {
+        "Craftoingo",
+        "Craftoingo: now with 100% more oingo",
+        "Craftoingo: definitely not Minecraft",
+        "Craftoingo: punching nature since 2013",
+        "Craftoingo: gravity sold separately",
+        "Craftoingo: certified chest trampoline range",
+        "Craftoingo: it's pronounced craft-OINGO",
+        "Craftoingo: 100% artisanal hand-punched cubes",
+        "Craftoingo: do not taste the clouds",
+        "Craftoingo: the blocks are watching",
+    };
+    int title_count = sizeof(titles) / sizeof(titles[0]);
     int window_width = WINDOW_WIDTH;
     int window_height = WINDOW_HEIGHT;
     GLFWmonitor *monitor = NULL;
@@ -2372,7 +2549,8 @@ void create_window() {
         window_height = modes[mode_count - 1].height;
     }
     g->window = glfwCreateWindow(
-        window_width, window_height, "Craft", monitor, NULL);
+        window_width, window_height, titles[rand() % title_count],
+        monitor, NULL);
 }
 
 void handle_mouse_input() {
@@ -2416,7 +2594,8 @@ void handle_movement(double dt) {
     if (!g->typing) {
         float m = dt * 1.0;
         g->ortho = glfwGetKey(g->window, CRAFT_KEY_ORTHO) ? 64 : 0;
-        g->fov = glfwGetKey(g->window, CRAFT_KEY_ZOOM) ? 15 : 65;
+        g->fov = glfwGetKey(g->window, CRAFT_KEY_ZOOM) ?
+            15 : (g->zoomies ? 85 : 65);
         if (glfwGetKey(g->window, CRAFT_KEY_FORWARD)) sz--;
         if (glfwGetKey(g->window, CRAFT_KEY_BACKWARD)) sz++;
         if (glfwGetKey(g->window, CRAFT_KEY_LEFT)) sx--;
@@ -2438,7 +2617,14 @@ void handle_movement(double dt) {
             }
         }
     }
+    if (g->boost_dy > 0) {
+        dy = g->boost_dy;
+        g->boost_dy = 0;
+    }
     float speed = g->flying ? 20 : 5;
+    if (g->zoomies) {
+        speed *= 3;
+    }
     int estimate = roundf(sqrtf(
         powf(vx * speed, 2) +
         powf(vy * speed + ABS(dy) * 2, 2) +
@@ -2453,7 +2639,7 @@ void handle_movement(double dt) {
             dy = 0;
         }
         else {
-            dy -= ut * 25;
+            dy -= ut * (g->moon_gravity ? 4 : 25);
             dy = MAX(dy, -250);
         }
         s->x += vx;
@@ -2461,6 +2647,20 @@ void handle_movement(double dt) {
         s->z += vz;
         if (collide(2, &s->x, &s->y, &s->z)) {
             dy = 0;
+        }
+    }
+    if (!g->flying && dy == 0) {
+        // chests are trampolines; standing on one is not an option
+        int nx = roundf(s->x);
+        int ny = roundf(s->y);
+        int nz = roundf(s->z);
+        if (get_block(nx, ny - 2, nz) == CHEST) {
+            static double last_boing = 0;
+            dy = 18;
+            if (glfwGetTime() - last_boing > 3) {
+                last_boing = glfwGetTime();
+                add_message("Boing!");
+            }
         }
     }
     if (s->y < 0) {
@@ -2581,6 +2781,15 @@ void reset_model() {
     g->day_length = DAY_LENGTH;
     glfwSetTime(g->day_length / 3.0);
     g->time_changed = 1;
+    g->boom_mode = 0;
+    g->zoomies = 0;
+    g->moon_gravity = 0;
+    g->rainbow_mode = 0;
+    g->rainbow_index = 0;
+    g->party_mode = 0;
+    g->boost_dy = 0;
+    g->has_home = 0;
+    cloudwalk_mode = 0;
 }
 
 int main(int argc, char **argv) {
@@ -2752,6 +2961,7 @@ int main(int argc, char **argv) {
 
         // LOCAL VARIABLES //
         reset_model();
+        add_message("Welcome to Craftoingo! Type /help for the silly stuff.");
         FPS fps = {0, 0, 0};
         double last_commit = glfwGetTime();
         double last_update = glfwGetTime();

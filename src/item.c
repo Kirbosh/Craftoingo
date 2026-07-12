@@ -61,6 +61,8 @@ const int items[] = {
 
 const int item_count = sizeof(items) / sizeof(int);
 
+int cloudwalk_mode = 0;
+
 const int blocks[256][6] = {
     // w => (left, right, top, bottom, front, back) tiles
     {0, 0, 0, 0, 0, 0}, // 0 - empty
@@ -163,8 +165,9 @@ int is_obstacle(int w) {
     }
     switch (w) {
         case EMPTY:
-        case CLOUD:
             return 0;
+        case CLOUD:
+            return cloudwalk_mode;
         default:
             return 1;
     }
