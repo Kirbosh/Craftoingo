@@ -33,6 +33,10 @@
 #define MOB_HR 1
 #define CAREER_PATH "oingo_career.txt"
 
+// where HR-1 keeps its desk (inside the admin depot)
+#define ADMIN_X 106
+#define ADMIN_Z 14
+
 #define ALIGN_LEFT 0
 #define ALIGN_CENTER 1
 #define ALIGN_RIGHT 2
@@ -108,6 +112,7 @@ typedef struct {
 typedef struct {
     int active;
     int type;
+    int state;
     float x;
     float y;
     float z;
@@ -184,8 +189,13 @@ typedef struct {
     double meat_until;
     double coffee_until;
     double stink_until;
-    int hr_tonight;
-    double dawn_since;
+    int admin_defeated;
+    int has_pad;
+    int pad_open;
+    int order_active;
+    int order_id;
+    int orders_taken;
+    int boss_hp;
     double next_pigeon;
     double next_whisper;
     double next_depth;
@@ -1887,9 +1897,13 @@ void add_message(const char *text) {
 void load_career() {
     g->coins = 10;
     g->level = 0;
+    g->admin_defeated = 0;
+    g->has_pad = 0;
     FILE *file = fopen(CAREER_PATH, "r");
     if (file) {
-        if (fscanf(file, "%d %d", &g->coins, &g->level) != 2) {
+        if (fscanf(file, "%d %d %d %d", &g->coins, &g->level,
+            &g->admin_defeated, &g->has_pad) < 2)
+        {
             g->coins = 10;
             g->level = 0;
         }
@@ -1900,7 +1914,8 @@ void load_career() {
 void save_career() {
     FILE *file = fopen(CAREER_PATH, "w");
     if (file) {
-        fprintf(file, "%d %d\n", g->coins, g->level);
+        fprintf(file, "%d %d %d %d\n", g->coins, g->level,
+            g->admin_defeated, g->has_pad);
         fclose(file);
     }
 }
@@ -1944,6 +1959,9 @@ static const Clearance clearances[] = {
 #define CLEARANCE_COUNT ((int)(sizeof(clearances) / sizeof(clearances[0])))
 
 int has_clearance(const char *command) {
+    if (g->admin_defeated) {
+        return 1; // the administrative lock is gone
+    }
     for (int i = 0; i < CLEARANCE_COUNT; i++) {
         if (strcmp(clearances[i].command, command) != 0) {
             continue;
@@ -1953,10 +1971,9 @@ int has_clearance(const char *command) {
         }
         char text[MAX_TEXT_LENGTH];
         snprintf(text, MAX_TEXT_LENGTH,
-            "CLEARANCE DENIED: %s requires level %d. You are level %d.",
-            clearances[i].command, clearances[i].level, g->level);
+            "MODULE OFFLINE: %s. RESTORE AT LEVEL %d.",
+            clearances[i].name, clearances[i].level);
         add_message(text);
-        add_message("Your curiosity has been noted.");
         return 0;
     }
     return 1;
@@ -1977,16 +1994,17 @@ typedef struct {
 
 // min_level must stay ascending so unlocked types form a prefix
 static const QuotaType quota_types[] = {
-    {"demolish ruin blocks", 12, 2, 0},
-    {"place blocks", 20, 3, 0},
-    {"collect garbage", 6, 1, 1},
-    {"mow the wilderness", 10, 2, 2},
-    {"install memorial units", 4, 1, 4},
+    {"CLEAR DEBRIS", 12, 2, 0},
+    {"PLACE MATERIALS", 20, 3, 0},
+    {"COLLECT GARBAGE", 6, 1, 1},
+    {"CLEAR VEGETATION", 10, 2, 2},
+    {"MEMORIAL UPKEEP", 4, 1, 4},
 };
 
 #define QUOTA_TYPE_COUNT ((int)(sizeof(quota_types) / sizeof(quota_types[0])))
 
-void new_quota() {
+// pull the next unresolved order off the pad's backlog
+void accept_order() {
     char text[MAX_TEXT_LENGTH];
     int unlocked = 0;
     for (int i = 0; i < QUOTA_TYPE_COUNT; i++) {
@@ -1994,100 +2012,94 @@ void new_quota() {
             unlocked++;
         }
     }
-    g->quota_type = (g->level * 7 + 3) % unlocked;
+    unsigned int h = (unsigned int)g->level * 2654435761u +
+        (unsigned int)g->orders_taken * 40503u;
+    g->orders_taken++;
+    g->order_id = 1000 + (int)(h % 9000);
+    g->quota_type = (int)((h >> 4) % (unsigned int)unlocked);
     g->quota_target = quota_types[g->quota_type].base +
         quota_types[g->quota_type].per_level * g->level;
     g->quota_progress = 0;
+    g->order_active = 1;
     snprintf(text, MAX_TEXT_LENGTH,
-        "WORK ORDER #%d: %s (0/%d). Enthusiasm is mandatory.",
-        g->level + 1, quota_types[g->quota_type].name, g->quota_target);
+        "ORD %04d ACCEPTED: %s, %d UNITS.",
+        g->order_id, quota_types[g->quota_type].name, g->quota_target);
     add_message(text);
 }
 
 void quota_credit(int type) {
-    if (type != g->quota_type) {
+    if (!g->order_active || type != g->quota_type) {
         return;
     }
     g->quota_progress++;
     if (g->quota_progress >= g->quota_target) {
-        static const char *payday_lines[4] = {
-            "OINGO CORP thanks you for your sacrifice.",
-            "OINGO CORP thanks you for your continued sacrifice.",
-            "The paycheck is addressed to someone with your exact name.",
-            "Payment processed from an account that closed in 1987."
-        };
-        static const char *promotion_lines[4] = {
-            "",
-            "PROMOTION: EMPLOYEE OF THE MONTH. There is no photo wall.",
-            "PROMOTION: MIDDLE MANAGEMENT. You remember applying. Don't you?",
-            "PROMOTION: DEEP STAFF. Orientation begins below."
-        };
         char text[MAX_TEXT_LENGTH];
         int pay = 10 + g->level * 2;
         int old_tier = career_tier();
         g->coins += pay;
         g->level++;
+        g->order_active = 0;
         save_career();
         snprintf(text, MAX_TEXT_LENGTH,
-            "PAYCHECK: +%d oingocoins. %s",
-            pay, payday_lines[old_tier]);
+            "ORD %04d COMPLETE. +%d CELLS.", g->order_id, pay);
         add_message(text);
         if (career_tier() != old_tier) {
-            add_message(promotion_lines[career_tier()]);
+            snprintf(text, MAX_TEXT_LENGTH,
+                "UNIT CLASS UPDATED: %s.", tier_titles[career_tier()]);
+            add_message(text);
         }
         for (int i = 0; i < CLEARANCE_COUNT; i++) {
             if (clearances[i].level == g->level) {
                 snprintf(text, MAX_TEXT_LENGTH,
-                    "CLEARANCE GRANTED: %s -- %s.",
-                    clearances[i].command, clearances[i].name);
+                    "MODULE RESTORED: %s (%s).",
+                    clearances[i].name, clearances[i].command);
                 add_message(text);
             }
         }
-        new_quota();
     }
 }
 
 void vend() {
     if (g->coins < 5) {
-        add_message("The machine displays: INSUFFICIENT FUNDS. It hums smugly.");
+        add_message("CELLS INSUFFICIENT. REQUIRED: 5.");
         return;
     }
     g->coins -= 5;
     int roll = rand() % 100;
     if (roll < 30) {
-        // past a certain pay grade, the machine starts dispensing history
+        // past a certain unit class, the machine starts dispensing history
         if (career_tier() >= 1 && rand() % 2) {
             static const char *notes[4] = {
-                "A note falls out: 'THE MACHINES WERE HERE FIRST.'",
-                "A cassette labeled ONBOARDING 1987. Nothing can play it.",
-                "A punch card with your name on it. Hire date: illegible.",
-                "A photo of this exact vending machine, but much older.",
+                "DISPENSED: A NOTE. 'THE MACHINES WERE HERE FIRST.'",
+                "DISPENSED: CASSETTE, 'ONBOARDING 1987'. NO PLAYER EXISTS.",
+                "DISPENSED: PUNCH CARD. THE NAME ON IT IS YOURS.",
+                "DISPENSED: PHOTO OF THIS MACHINE, MUCH OLDER.",
             };
             add_message(notes[rand() % (career_tier() >= 3 ? 4 : 3)]);
         }
         else {
-            add_message("The machine eats your money. Somewhere, a manager smiles.");
+            add_message("DISPENSED: NOTHING. CELLS NOT REFUNDED.");
         }
     }
     else if (roll < 50) {
         g->cola_until = g->game_time + 45;
-        add_message("CLUNK. Lukewarm OINGO-COLA. You feel incredibly fast. (45s)");
+        add_message("DISPENSED: COOLANT. MOBILITY +200%, 45S.");
     }
     else if (roll < 65) {
         g->meat_until = g->game_time + 45;
-        add_message("CLUNK. Mystery meat. Your bones feel... lighter. (45s)");
+        add_message("DISPENSED: MEAT, UNLABELED. EFFECTIVE MASS REDUCED, 45S.");
     }
     else if (roll < 80) {
         g->coffee_until = g->game_time + 30;
-        add_message("CLUNK. Expired coffee. Time gets weird for a while. (30s)");
+        add_message("DISPENSED: COFFEE, EXPIRED. CHRONOLOGY UNRELIABLE, 30S.");
     }
     else if (roll < 92) {
         g->coins += 2;
-        add_message("A single sad cracker falls out. Partial refund: 2 coins.");
+        add_message("DISPENSED: ONE (1) CRACKER. REBATE: 2 CELLS.");
     }
     else {
         g->coins += 25;
-        add_message("KA-CHUNK. The machine malfunctions in your favor: +25 coins.");
+        add_message("FAULT: OVERPAYMENT. +25 CELLS.");
     }
     save_career();
 }
@@ -2135,8 +2147,6 @@ void update_mobs(double dt) {
     float daylight = get_daylight();
     int moon = g->moon_gravity || g->game_time < g->meat_until;
     int tier = career_tier();
-    // senior staff attract attention earlier in the evening
-    float night = tier >= 2 ? 0.3 : 0.2;
     // pigeons drift in; this world is mostly theirs now
     if (g->game_time > g->next_pigeon) {
         g->next_pigeon = g->game_time + 3;
@@ -2144,46 +2154,31 @@ void update_mobs(double dt) {
             spawn_mob_near(MOB_PIGEON, s->x, s->z, 12, 28);
         }
     }
-    if (daylight < night) {
-        g->dawn_since = 0;
-        if (!g->hr_tonight) {
-            g->hr_tonight = 1;
-            Mob *hr = spawn_mob_near(MOB_HR, s->x, s->z, 20, 30);
-            if (hr) {
-                hr->think = g->game_time + 45; // minimum shift length
-                if (tier >= 3) {
-                    Mob *hr2 = spawn_mob_near(MOB_HR, s->x, s->z, 20, 30);
-                    if (hr2) {
-                        hr2->think = g->game_time + 45;
-                    }
-                    add_message(
-                        "You feel performance reviews approaching. Plural.");
-                }
-                else {
-                    add_message("You feel a performance review approaching.");
+    // HR-1 waits at its post in the admin depot
+    if (!g->admin_defeated && count_mobs(MOB_HR) == 0) {
+        float ddx = s->x - ADMIN_X;
+        float ddz = s->z - ADMIN_Z;
+        if (ddx * ddx + ddz * ddz < 48 * 48) {
+            int h = highest_block(ADMIN_X, ADMIN_Z);
+            if (h > 0) {
+                Mob *boss = spawn_mob(MOB_HR, ADMIN_X, h + 2, ADMIN_Z);
+                if (boss) {
+                    g->boss_hp = 6;
                 }
             }
-        }
-        if (tier >= 1 && g->game_time > g->next_whisper) {
-            static const char *whispers[3] = {
-                "A pigeon has been watching you work. It looks away.",
-                "The pigeons are quieter tonight.",
-                "Every pigeon is facing the same direction. Not toward you."
-            };
-            if (g->next_whisper > 0) {
-                add_message(whispers[tier - 1]);
-            }
-            g->next_whisper = g->game_time + 60 + rand() % 60;
         }
     }
-    else {
-        // sustained daylight resets the night; disco flicker does not
-        if (g->dawn_since == 0) {
-            g->dawn_since = g->game_time;
+    // night sensor logs, once the unit has seen enough to log them
+    if (daylight < 0.2 && tier >= 1 && g->game_time > g->next_whisper) {
+        static const char *logs[3] = {
+            "PASSIVE AUDIO: 40+ BIRDS. STATIONARY. AWAKE.",
+            "MOTION SCAN: NOTHING. REPEAT: NOTHING.",
+            "ALL BIRDS ORIENTED, BEARING 044. CAUSE UNKNOWN."
+        };
+        if (g->next_whisper > 0) {
+            add_message(logs[tier - 1]);
         }
-        if (g->game_time - g->dawn_since > 30) {
-            g->hr_tonight = 0;
-        }
+        g->next_whisper = g->game_time + 60 + rand() % 60;
     }
     for (int i = 0; i < MAX_MOBS; i++) {
         Mob *m = g->mobs + i;
@@ -2227,50 +2222,71 @@ void update_mobs(double dt) {
             }
         }
         else {
-            if (daylight >= night && g->game_time > m->think) {
+            if (g->admin_defeated) {
                 m->active = 0;
-                add_message("HR clocks out. You survive another quarter.");
                 continue;
             }
-            float hr_speed = 2.4 + tier * 0.3;
-            if (dist > 0.1) {
-                m->vx = dx / dist * hr_speed;
-                m->vz = dz / dist * hr_speed;
+            if (m->state == 0) {
+                // dormant at its desk; only the head moves
+                if (dist < 10) {
+                    m->rx = atan2f(dz, dx) + RADIANS(90);
+                }
+                if (dist < 2.2) {
+                    m->state = 1;
+                    add_message("HR-1 REACTIVATED. ASSET RECOVERY IN PROGRESS.");
+                }
+                else if (dist > 64) {
+                    m->active = 0;
+                }
+                continue;
             }
-            m->rx = atan2f(dz, dx) + RADIANS(90);
+            if (dist > 50) {
+                // out of range; it returns to its desk and powers down
+                int h = highest_block(ADMIN_X, ADMIN_Z);
+                m->x = ADMIN_X;
+                m->z = ADMIN_Z;
+                m->y = (h > 0 ? h : 14) + 2;
+                m->state = 0;
+                m->vx = 0;
+                m->vz = 0;
+                g->boss_hp = 6;
+                continue;
+            }
             if (dist < 12) {
-                static const char *step_lines[4] = {
-                    "You hear slow, purposeful footsteps.",
-                    "You hear slow, purposeful footsteps.",
-                    "The footsteps match yours exactly.",
-                    "The footsteps stopped. That is worse."
-                };
                 static double last_steps = 0;
                 if (g->game_time - last_steps > 8 ||
                     last_steps > g->game_time)
                 {
                     last_steps = g->game_time;
-                    add_message(step_lines[tier]);
+                    add_message("AUDIO: FOOTSTEPS.");
                 }
             }
-            if (dist < 1.5 && fabsf(s->y - m->y) < 3) {
+            if (g->game_time < m->think) {
+                m->vx = 0;
+                m->vz = 0;
+            }
+            else if (dist > 0.1) {
+                m->vx = dx / dist * 3.2;
+                m->vz = dz / dist * 3.2;
+            }
+            m->rx = atan2f(dz, dx) + RADIANS(90);
+            if (dist < 1.5 && fabsf(s->y - m->y) < 3 &&
+                g->game_time > m->think)
+            {
                 char text[MAX_TEXT_LENGTH];
-                int fine = MIN(g->coins,
-                    MAX(5, g->coins / (tier >= 2 ? 2 : 4)));
-                m->active = 0;
-                add_message("HR: 'We found irregularities in your timesheet.'");
-                if (fine > 0) {
-                    g->coins -= fine;
+                int loss = MIN(g->coins, 10);
+                if (loss > 0) {
+                    g->coins -= loss;
                     save_career();
                     snprintf(text, MAX_TEXT_LENGTH,
-                        "%d oingocoins deducted. 'Have a great weekend.'",
-                        fine);
+                        "HR-1: ASSET RECOVERY. -%d CELLS.", loss);
                     add_message(text);
                 }
                 else {
-                    add_message("You have nothing left to deduct. It nods.");
+                    add_message("HR-1 FINDS NOTHING LEFT TO RECOVER.");
                 }
-                continue;
+                g->boost_dy = 15;
+                m->think = g->game_time + 2;
             }
         }
         if (m->type == MOB_PIGEON) {
@@ -2560,12 +2576,12 @@ void parse_command(const char *buffer, int forward) {
         }
     }
     else if (strcmp(buffer, "/help") == 0) {
-        add_message("-- OINGO CORP ORIENTATION --");
-        add_message("Meet the WORK ORDER (top left) to earn oingocoins.");
-        add_message("Punch a vending machine to spend 5 coins. Results vary.");
-        add_message("HR patrols at night. Avoid your performance review.");
-        add_message("Clearances unlock by level: /zoomies /rainbow /party");
-        add_message("/moon /boom /cloudwalk. Also /joke /pigeon /sethome /home");
+        add_message("-- SELF TEST --");
+        add_message("FIELD PAD: Q. ORDERS PAY CELLS. DISPENSERS TAKE 5.");
+        add_message("SALVAGE CRATES: +8 CELLS EACH. SOME PLACES ARE SEALED.");
+        add_message("MODULES: /zoomies 1 /rainbow 2 /party 3 /moon 4");
+        add_message("/boom 5 /cloudwalk 8. FREE: /pigeon /joke /sethome");
+        add_message("/home /day /night /time H");
     }
     else if (strcmp(buffer, "/boom") == 0) {
         if (has_clearance("/boom")) {
@@ -2622,7 +2638,7 @@ void parse_command(const char *buffer, int forward) {
         if (spawn_mob(MOB_PIGEON,
             roundf(s->x + vx * 4), s->y, roundf(s->z + vz * 4)))
         {
-            add_message("A colleague arrives. It expects nothing from you.");
+            add_message("REQUESTED: 1 BIRD. DELIVERED: 1 BIRD.");
         }
     }
     else if (strcmp(buffer, "/joke") == 0) {
@@ -2747,6 +2763,7 @@ void parse_command(const char *buffer, int forward) {
 
 int explode(int cx, int cy, int cz, int radius) {
     int vandalism = 0;
+    int crates = 0;
     for (int x = cx - radius; x <= cx + radius; x++) {
         for (int y = cy - radius; y <= cy + radius; y++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
@@ -2764,11 +2781,21 @@ int explode(int cx, int cy, int cz, int radius) {
                     if (w == VENDING) {
                         vandalism++;
                     }
+                    if (w == CELL_CRATE) {
+                        crates++;
+                    }
                     set_block(x, y, z, 0);
                     record_block(x, y, z, 0);
                 }
             }
         }
+    }
+    if (crates) {
+        char text[MAX_TEXT_LENGTH];
+        g->coins += crates * 8;
+        save_career();
+        snprintf(text, MAX_TEXT_LENGTH, "SALVAGE: +%d CELLS.", crates * 8);
+        add_message(text);
     }
     return vandalism;
 }
@@ -2784,10 +2811,89 @@ void on_light() {
 
 void on_left_click() {
     State *s = &g->players->state;
+    // a swing connects with HR-1 before anything behind it
+    float svx, svy, svz;
+    get_sight_vector(s->rx, s->ry, &svx, &svy, &svz);
+    for (int i = 0; i < MAX_MOBS; i++) {
+        Mob *m = g->mobs + i;
+        if (!m->active || m->type != MOB_HR) {
+            continue;
+        }
+        float mdx = m->x - s->x;
+        float mdy = m->y - s->y;
+        float mdz = m->z - s->z;
+        float t = mdx * svx + mdy * svy + mdz * svz;
+        if (t < 0 || t > 6) {
+            continue;
+        }
+        float cx = mdx - svx * t;
+        float cy = mdy - svy * t;
+        float cz = mdz - svz * t;
+        if (cx * cx + cy * cy + cz * cz > 1.2) {
+            continue;
+        }
+        if (m->state == 0) {
+            m->state = 1;
+            g->boss_hp = 6;
+            add_message("HR-1 REACTIVATED. ASSET RECOVERY IN PROGRESS.");
+            return;
+        }
+        g->boss_hp--;
+        if (g->boss_hp <= 0) {
+            int bx = roundf(m->x);
+            int by = roundf(m->y) - 1;
+            int bz = roundf(m->z);
+            m->active = 0;
+            g->admin_defeated = 1;
+            g->coins += 50;
+            save_career();
+            if (by > 0 && by < 255 && get_block(bx, by, bz) == 0) {
+                set_block(bx, by, bz, RUST);
+                record_block(bx, by, bz, RUST);
+            }
+            add_message("HR-1 DECOMMISSIONED. +50 CELLS RECOVERED.");
+            add_message("ADMINISTRATIVE LOCK LIFTED. ALL MODULES ONLINE.");
+        }
+        else {
+            char text[MAX_TEXT_LENGTH];
+            float hd = sqrtf(mdx * mdx + mdz * mdz);
+            if (hd > 0.1) {
+                m->x += mdx / hd * 3;
+                m->z += mdz / hd * 3;
+            }
+            m->think = g->game_time + 0.8;
+            snprintf(text, MAX_TEXT_LENGTH,
+                "HR-1 INTEGRITY: %d/6.", g->boss_hp);
+            add_message(text);
+        }
+        return;
+    }
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && hw == VENDING && !g->boom_mode) {
         vend();
+        return;
+    }
+    if (hy > 0 && hy < 256 && hw == TERMINAL && !g->boom_mode) {
+        // the dock at the wake site still holds a field pad; the rest are dead
+        if (!g->has_pad) {
+            g->has_pad = 1;
+            save_career();
+            set_block(hx, hy, hz, 0);
+            record_block(hx, hy, hz, 0);
+            add_message("FIELD PAD ACQUIRED. PRESS Q.");
+        }
+        else {
+            add_message("TERMINAL OFFLINE.");
+        }
+        return;
+    }
+    if (hy > 0 && hy < 256 && hw == CELL_CRATE && !g->boom_mode) {
+        set_block(hx, hy, hz, 0);
+        record_block(hx, hy, hz, 0);
+        g->coins += 8;
+        save_career();
+        add_message("SALVAGE: +8 CELLS.");
         return;
     }
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
@@ -2810,16 +2916,13 @@ void on_left_click() {
             }
             add_message(boom_lines[rand() % boom_count]);
             if (vandalism) {
+                char text[MAX_TEXT_LENGTH];
                 int fine = MIN(g->coins, 15);
-                add_message("COMPANY PROPERTY DESTROYED. A fine arrives instantly.");
-                if (fine > 0) {
-                    char text[MAX_TEXT_LENGTH];
-                    g->coins -= fine;
-                    save_career();
-                    snprintf(text, MAX_TEXT_LENGTH,
-                        "-%d oingocoins, deducted with prejudice.", fine);
-                    add_message(text);
-                }
+                g->coins -= fine;
+                save_career();
+                snprintf(text, MAX_TEXT_LENGTH,
+                    "PROPERTY DAMAGE LOGGED. -%d CELLS.", fine);
+                add_message(text);
             }
         }
         else {
@@ -2839,15 +2942,15 @@ void on_left_click() {
                     spawn_mob(MOB_PIGEON,
                         hx + rand() % 3 - 1, hy + 1, hz + rand() % 3 - 1);
                 }
-                add_message("The grave was full of pigeons. Of course it was.");
+                add_message("CENSUS UPDATE: +3 BIRDS.");
             }
             if (hy <= 6 && g->game_time > g->next_depth &&
                 (g->next_depth == 0 || rand() % 3 == 0))
             {
                 g->next_depth = g->game_time + 20;
                 add_message(hy <= 3 ?
-                    "You hear pipes down here. There are no pipes." :
-                    "The stone is warm down here.");
+                    "AUDIO: KNOCKING, RHYTHMIC. NO SOURCE FOUND." :
+                    "THERMAL: +14C ANOMALY. SOURCE: BELOW.");
             }
             if (is_plant(get_block(hx, hy + 1, hz))) {
                 set_block(hx, hy + 1, hz, 0);
@@ -2941,6 +3044,11 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
                 }
             }
         }
+        else if (g->pad_open && g->has_pad) {
+            if (!g->order_active) {
+                accept_order();
+            }
+        }
         else {
             if (control) {
                 on_right_click();
@@ -2962,6 +3070,9 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
         }
     }
     if (!g->typing) {
+        if (key == CRAFT_KEY_PAD && g->has_pad) {
+            g->pad_open = !g->pad_open;
+        }
         if (key == CRAFT_KEY_FLY) {
             g->flying = !g->flying;
         }
@@ -3183,7 +3294,7 @@ void handle_movement(double dt) {
     {
         speed *= 0.45;
         if (g->game_time > g->stink_until) {
-            add_message("You step in corporate sludge. The pigeons will know.");
+            add_message("CONTAMINANT: SOLE HOUSINGS. ODOR: SIGNIFICANT.");
         }
         g->stink_until = g->game_time + 45;
     }
@@ -3226,6 +3337,13 @@ void handle_movement(double dt) {
         }
     }
     if (s->y < 0) {
+        if (highest_block(s->x, s->z) < 0) {
+            // fell past the rim; something puts the unit back
+            s->x = 0;
+            s->z = 0;
+            force_chunks(g->players);
+            add_message("GEOMETRY FAULT. UNIT RECOVERED TO DATUM.");
+        }
         s->y = highest_block(s->x, s->z) + 2;
     }
 }
@@ -3357,23 +3475,20 @@ void reset_model() {
     g->meat_until = 0;
     g->coffee_until = 0;
     g->stink_until = 0;
-    g->hr_tonight = 0;
-    g->dawn_since = 0;
+    g->pad_open = 0;
+    g->order_active = 0;
+    g->orders_taken = 0;
+    g->boss_hp = 0;
     g->next_pigeon = 0;
     g->next_whisper = 0;
     g->next_depth = 0;
     memset(g->mobs, 0, sizeof(Mob) * MAX_MOBS);
     load_career();
-    {
-        static const char *welcome_lines[4] = {
-            "OINGO CORP welcomes you back. (/help for orientation)",
-            "OINGO CORP welcomes you back. Your badge still works.",
-            "OINGO CORP welcomes you back. The building remembers you.",
-            "OINGO CORP welcomes its Deep Staff. The door was never locked."
-        };
-        add_message(welcome_lines[career_tier()]);
-    }
-    new_quota();
+    add_message("REACTIVATION . . . OK. DOWNTIME: 11,432 DAYS.");
+    add_message(g->has_pad ?
+        "FIELD PAD PAIRED. PRESS Q." :
+        "FIELD PAD SIGNAL: NEARBY.");
+    add_message("CHARGE LOW.");
 }
 
 int main(int argc, char **argv) {
@@ -3563,6 +3678,11 @@ int main(int argc, char **argv) {
         if (!loaded) {
             s->y = highest_block(s->x, s->z) + 2;
         }
+        // the birds that woke you scatter from your chassis
+        for (int i = 0; i < 3; i++) {
+            spawn_mob(MOB_PIGEON,
+                s->x + i - 1, s->y, s->z + (i % 2 ? 2 : -2));
+        }
 
         // BEGIN MAIN LOOP //
         double previous = glfwGetTime();
@@ -3675,14 +3795,21 @@ int main(int argc, char **argv) {
                 ty -= ts * 2;
             }
             {
+                char status[128];
+                if (g->order_active) {
+                    snprintf(status, 128, "ORD %04d %s %d/%d",
+                        g->order_id, quota_types[g->quota_type].name,
+                        g->quota_progress, g->quota_target);
+                }
+                else {
+                    snprintf(status, 128, "NO ACTIVE ORDER");
+                }
                 snprintf(
-                    text_buffer, 1024, "$%d | %s | %s %d/%d%s%s%s",
-                    g->coins, tier_titles[career_tier()],
-                    quota_types[g->quota_type].name,
-                    g->quota_progress, g->quota_target,
-                    g->game_time < g->cola_until ? " [COLA]" : "",
-                    g->game_time < g->meat_until ? " [MEAT]" : "",
-                    g->game_time < g->stink_until ? " [STINKY]" : "");
+                    text_buffer, 1024, "PWR %d | %s | %s%s%s%s",
+                    g->coins, tier_titles[career_tier()], status,
+                    g->game_time < g->cola_until ? " [COOLANT]" : "",
+                    g->game_time < g->meat_until ? " [LOWMASS]" : "",
+                    g->game_time < g->stink_until ? " [ODOR]" : "");
                 render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
                 ty -= ts * 2;
             }
@@ -3700,6 +3827,54 @@ int main(int argc, char **argv) {
                 snprintf(text_buffer, 1024, "> %s", g->typing_buffer);
                 render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
                 ty -= ts * 2;
+            }
+            if (g->pad_open && g->has_pad) {
+                char on_line[512] = "ONLINE:";
+                char off_line[512] = "OFFLINE:";
+                for (int i = 0; i < CLEARANCE_COUNT; i++) {
+                    char part[64];
+                    if (g->admin_defeated ||
+                        g->level >= clearances[i].level)
+                    {
+                        snprintf(part, 64, " %s", clearances[i].command);
+                        strncat(on_line, part,
+                            sizeof(on_line) - strlen(on_line) - 1);
+                    }
+                    else {
+                        snprintf(part, 64, " %s(L%d)",
+                            clearances[i].command, clearances[i].level);
+                        strncat(off_line, part,
+                            sizeof(off_line) - strlen(off_line) - 1);
+                    }
+                }
+                float py = g->height / 2 + ts * 6;
+                render_text(&text_attrib, ALIGN_LEFT, tx, py, ts,
+                    "== FIELD PAD ==");
+                py -= ts * 2;
+                snprintf(text_buffer, 1024, "UNIT 01NGO / %s / %d CELLS",
+                    tier_titles[career_tier()], g->coins);
+                render_text(&text_attrib, ALIGN_LEFT, tx, py, ts,
+                    text_buffer);
+                py -= ts * 2;
+                if (g->order_active) {
+                    snprintf(text_buffer, 1024, "ORD %04d: %s %d/%d",
+                        g->order_id, quota_types[g->quota_type].name,
+                        g->quota_progress, g->quota_target);
+                }
+                else {
+                    snprintf(text_buffer, 1024,
+                        "BACKLOG: %d ORDERS. [ENTER] ACCEPT NEXT",
+                        4312 - g->level);
+                }
+                render_text(&text_attrib, ALIGN_LEFT, tx, py, ts,
+                    text_buffer);
+                py -= ts * 2;
+                render_text(&text_attrib, ALIGN_LEFT, tx, py, ts, on_line);
+                py -= ts * 2;
+                render_text(&text_attrib, ALIGN_LEFT, tx, py, ts, off_line);
+                py -= ts * 2;
+                render_text(&text_attrib, ALIGN_LEFT, tx, py, ts,
+                    "[Q] CLOSE");
             }
             if (SHOW_PLAYER_NAMES) {
                 if (player != me) {

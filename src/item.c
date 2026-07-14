@@ -139,6 +139,8 @@ const int blocks[256][6] = {
     {207, 207, 207, 207, 207, 207}, // 63
     [PIGEON_SKIN] = {74, 74, 76, 78, 75, 77}, // 64 - pigeon mob
     [HR_SKIN] = {80, 80, 82, 83, 81, 84}, // 65 - HR inspector mob
+    [TERMINAL] = {72, 72, 72, 72, 85, 72}, // 66 - dead terminal / field pad dock
+    [CELL_CRATE] = {86, 86, 86, 86, 86, 86}, // 67 - salvage crate
 };
 
 const int plants[256] = {

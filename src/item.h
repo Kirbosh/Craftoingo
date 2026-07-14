@@ -70,6 +70,10 @@
 #define PIGEON_SKIN 64
 #define HR_SKIN 65
 
+// world-only blocks: generated, never player-placed
+#define TERMINAL 66
+#define CELL_CRATE 67
+
 extern const int items[];
 extern const int item_count;
 extern const int blocks[256][6];

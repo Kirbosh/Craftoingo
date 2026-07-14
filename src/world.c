@@ -1,7 +1,27 @@
+#include <math.h>
 #include "config.h"
 #include "item.h"
 #include "noise.h"
 #include "world.h"
+
+// the world is an island; past the rim, cracks widen into the void
+#define WORLD_RADIUS 176
+#define CRACK_START 130
+
+static int inside_world(int x, int z) {
+    float d = sqrtf((float)(x * x + z * z));
+    if (d > WORLD_RADIUS) {
+        return 0;
+    }
+    if (d > CRACK_START) {
+        float t = (d - CRACK_START) / (WORLD_RADIUS - CRACK_START);
+        float n = simplex2(x * 0.03f + 71, z * 0.03f - 29, 3, 0.5, 2);
+        if (fabsf(n - 0.5f) < 0.015f + 0.14f * t) {
+            return 0;
+        }
+    }
+    return 1;
+}
 
 // deterministic integer hash so structures are identical for every client
 static unsigned int whash(int a, int b, unsigned int salt) {
@@ -50,6 +70,98 @@ static void gen_road_column(int x, int h, int z, world_func func, void *arg) {
     }
     else if (litter == 1) {
         func(x, h, z, CAUTION, arg);
+    }
+}
+
+// where the player wakes: a dock pedestal holding the field pad
+static void gen_wake_site(world_func func, void *arg) {
+    int tw;
+    int h = terrain_height(3, 3, &tw);
+    func(3, h, 3, RUST, arg);
+    func(3, h + 1, 3, TERMINAL, arg);
+    func(2, h, 4, GARBAGE, arg);
+}
+
+// the admin depot: leveled ground, mostly intact, and something waits inside
+static void gen_admin_depot(world_func func, void *arg) {
+    int tw;
+    int base = terrain_height(106, 14, &tw);
+    for (int x = 100; x <= 112; x++) {
+        for (int z = 8; z <= 20; z++) {
+            int h = terrain_height(x, z, &tw);
+            // grade the site flat: carve the hill, fill the hollow
+            for (int y = base; y < h + 5 && y < 64; y++) {
+                func(x, y, z, 0, arg);
+            }
+            for (int y = h; y < base; y++) {
+                func(x, y, z, DIRT, arg);
+            }
+            func(x, base - 1, z, PLANK, arg);
+            int edge = x == 100 || x == 112 || z == 8 || z == 20;
+            if (edge) {
+                int is_door = x == 100 && (z == 13 || z == 14);
+                for (int y = 0; y < 4; y++) {
+                    if (is_door && y < 2) {
+                        continue;
+                    }
+                    if (whash(x, y, z + 57) % 100 < 12) {
+                        continue;
+                    }
+                    func(x, base + y, z, BRICK, arg);
+                }
+            }
+        }
+    }
+    func(102, base, 10, TERMINAL, arg);
+    func(110, base, 18, TERMINAL, arg);
+    func(110, base, 10, VENDING, arg);
+    for (int i = 0; i < 3; i++) {
+        func(104 + i, base, 16, CELL_CRATE, arg);
+    }
+    func(99, terrain_height(99, 14, &tw), 14, CAUTION, arg);
+}
+
+// a sky depot: a dark square in the clouds, reachable by those who can walk on them
+static void gen_sky_depot(int sx, int sz, unsigned int seed,
+    world_func func, void *arg)
+{
+    for (int dx = -2; dx <= 2; dx++) {
+        for (int dz = -2; dz <= 2; dz++) {
+            func(sx + dx, 71, sz + dz, RUST, arg);
+        }
+    }
+    func(sx - 2, 72, sz - 2, CAUTION, arg);
+    func(sx + 2, 72, sz + 2, CAUTION, arg);
+    func(sx, 72, sz, VENDING, arg);
+    func(sx - 1, 72, sz, CELL_CRATE, arg);
+    func(sx + 1, 72, sz + 1, CELL_CRATE, arg);
+    func(sx, 72, sz - 1, CELL_CRATE, arg);
+}
+
+// a sealed vault: no door, no windows; demolition clearance recommended
+static void gen_vault(int sx, int sz, unsigned int seed,
+    world_func func, void *arg)
+{
+    int tw;
+    int h = terrain_height(sx, sz, &tw);
+    for (int dx = -2; dx <= 2; dx++) {
+        for (int dz = -2; dz <= 2; dz++) {
+            for (int y = 0; y < 4; y++) {
+                int shell = dx == -2 || dx == 2 || dz == -2 || dz == 2 ||
+                    y == 0 || y == 3;
+                if (shell) {
+                    func(sx + dx, h + y, sz + dz, DARK_STONE, arg);
+                }
+                else {
+                    func(sx + dx, h + y, sz + dz, 0, arg);
+                }
+            }
+        }
+    }
+    for (int i = 0; i < 5; i++) {
+        int cx = sx - 1 + i % 3;
+        int cz = sz - 1 + i / 3;
+        func(cx, h + 1, cz, CELL_CRATE, arg);
     }
 }
 
@@ -115,6 +227,18 @@ static void gen_ruin(int p, int q, int sx, int sz, unsigned int seed,
         int h = terrain_height(x, z, &tw);
         func(x, h, z, CHEST, arg);
     }
+    if ((seed >> 2) % 3 == 0) {
+        int x = sx + wx - 1;
+        int z = sz + 1;
+        int h = terrain_height(x, z, &tw);
+        func(x, h, z, TERMINAL, arg); // screen dead, like the rest
+    }
+    if ((seed >> 6) % 4 == 0) {
+        int x = sx + 1;
+        int z = sz + wz - 1;
+        int h = terrain_height(x, z, &tw);
+        func(x, h, z, CELL_CRATE, arg);
+    }
 }
 
 static void gen_graveyard(int sx, int sz, unsigned int seed,
@@ -166,6 +290,14 @@ static void gen_sludge_pit(int sx, int sz, unsigned int seed,
 }
 
 static void gen_structures(int p, int q, world_func func, void *arg) {
+    if (p == 0 && q == 0) {
+        gen_wake_site(func, arg);
+        return;
+    }
+    if (p == 3 && q == 0) {
+        gen_admin_depot(func, arg);
+        return;
+    }
     unsigned int roll = whash(p, q, 1) % 100;
     unsigned int seed = whash(p, q, 2);
     // anchors stay 8 blocks inside the chunk so nothing crosses a border
@@ -173,6 +305,9 @@ static void gen_structures(int p, int q, world_func func, void *arg) {
     int az = 8 + (int)(whash(p, q, 4) % 16);
     int sx = p * CHUNK_SIZE + ax;
     int sz = q * CHUNK_SIZE + az;
+    if (sx * sx + sz * sz > (CRACK_START - 10) * (CRACK_START - 10)) {
+        return; // nothing was built out by the cracks
+    }
     if (roll < 20) {
         gen_ruin(p, q, sx - 3, sz - 3, seed, func, arg);
     }
@@ -190,6 +325,12 @@ static void gen_structures(int p, int q, world_func func, void *arg) {
             func(sx + 1, h, sz, CAUTION, arg);
         }
     }
+    else if (roll < 58) {
+        gen_vault(sx, sz, seed, func, arg);
+    }
+    else if (roll < 66) {
+        gen_sky_depot(sx, sz, seed, func, arg);
+    }
 }
 
 void create_world(int p, int q, world_func func, void *arg) {
@@ -202,6 +343,9 @@ void create_world(int p, int q, world_func func, void *arg) {
             }
             int x = p * CHUNK_SIZE + dx;
             int z = q * CHUNK_SIZE + dz;
+            if (!inside_world(x, z)) {
+                continue;
+            }
             int w;
             int h = terrain_height(x, z, &w);
             int road = on_road(x, z);

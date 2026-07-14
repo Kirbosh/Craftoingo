@@ -12,8 +12,12 @@ http://www.michaelfogleman.com/craft/
 ### The World of OINGO CORP
 
 Craftoingo is what's left after OINGO CORP, a failed terraforming concern,
-went under. You are their last remaining contractor. Type `/help` in game
-for orientation.
+went under. You are a maintenance unit that spent 11,432 days powered down
+at a crossroads until the pigeons standing on your chassis pressed
+something. Nobody tells you what to do. The world is finite — its rim is
+torn by cracks that fall away into the void — and everything in it was
+already here before you woke up: find your field pad on the dock beside
+you, or don't. Type `/help` for your self test.
 
 #### Structures
 
@@ -33,56 +37,75 @@ everything else.
 
 #### Entities
 
-* **Pigeons** — your colleagues. They wander the roads, flee when you get
-  too close (much further if you smell like sludge), and occasionally erupt
-  from disturbed graves. `/pigeon` summons one if you are lonely.
-* **The HR Inspector** — a floating, bespectacled head of middle management
-  that patrols at night. He walks through terrain, because walls are a
-  mindset. You will hear slow, purposeful footsteps before you see him. If
-  he reaches you, coins are deducted and you are wished a great weekend.
-  Outrun him until dawn, or pay.
+* **Pigeons** — the ones who woke you. They wander the roads, flee when
+  you get too close (much further if you smell like sludge), and
+  occasionally erupt from disturbed graves. `/pigeon` requisitions one.
+* **HR-1** — a single unit, dormant at its desk in the admin depot down
+  the east road. Its head tracks you if you get close. Wake it — by touch
+  or by punch — and it begins asset recovery: it glides through terrain
+  toward you, drains your cells on contact and hurls you into the air.
+  Land six hits to decommission it; the administrative lock lifts, every
+  module comes online at once, and it never gets back up. Or leave it
+  alone forever. Both are endings. It cost our test pilot 70 cells to
+  learn the fight.
+
+#### The Field Pad
+
+Your utility object, Breath-of-the-Wild style. It sits on a dock beside
+where you wake; punch the dock to take it, then press **Q** any time to
+pull it up. It shows your unit class, your cells, every module and what it
+takes to restore it, and OINGO CORP's final work queue — 4,312 unresolved
+orders. Press **Enter** with the pad open to accept the next one: clear
+debris, place materials, collect garbage, clear vegetation, memorial
+upkeep. Completing an order pays cells and raises your level. The backlog
+does not meaningfully shrink. Every other terminal in the world is dead.
 
 #### Mechanics
 
-* **Work orders** — a rotating quota (demolition, sanitation, urban
-  development) shown in the HUD next to your balance. Completing one pays
-  oingocoins and issues the next, slightly larger one. Purpose!
-* **Oingocoins** — earned by quota, lost to HR and vending machines,
-  persisted across sessions in `oingo_career.txt`.
-* **Vending machines** — punch one to spend 5 coins on a mystery outcome:
-  lukewarm OINGO-COLA (45s of speed), mystery meat (45s of lighter bones),
-  expired coffee (time gets weird), a single sad cracker, a jackpot, or
-  nothing at all. Destroying company property is fined instantly.
+* **Cells** — the currency and the point: earned from orders and salvage,
+  spent at dispensers, drained by HR-1. Persisted in `oingo_career.txt`.
+* **Salvage crates** — scattered in ruins, sealed vaults and sky depots;
+  breaking one pays 8 cells. Explosions salvage them just as well.
+* **Dispensers** — punch a vending machine to spend 5 cells on a mystery
+  outcome: coolant (45s of speed), unlabeled meat (45s of low gravity),
+  expired coffee (time gets weird), a cracker, an overpayment fault — or
+  nothing. Higher-class units occasionally receive things that are not
+  snacks: notes, cassettes, punch cards, photographs that should not
+  exist. Destroying company property is fined instantly.
 * **Sludge** — standing on it slows you down and marks you; the pigeons
   will know.
 * **Trampoline chests** — chests are spring-loaded and cannot be stood on.
   Ruins sometimes contain one. Sorry in advance.
 
-#### Progression
+#### Modules and where they take you
 
-Everything above feeds one ladder: your **level**, persisted in
-`oingo_career.txt` and shown in the HUD with your current title.
+Restoring modules is the progression: each level of honest work brings a
+subsystem back online, and each subsystem is a key to somewhere.
 
-* **Titles** — PROBATIONARY UNIT → EMPLOYEE OF THE MONTH (level 3) →
-  MIDDLE MANAGEMENT (level 6) → DEEP STAFF (level 10). Each promotion is
-  announced. The announcements do not get more reassuring.
-* **Clearances** — the fun commands are company equipment, unlocked by
-  level: `/zoomies` (1), `/rainbow` (2), `/party` (3), `/moon` (4),
-  `/boom` (5), `/cloudwalk` (8). Asking early is noted.
-* **Work orders diversify** — sanitation unlocks at level 1, landscaping
-  ("mow the wilderness") at 2, memorial services at 4.
-* **The world keeps pace** — HR walks faster as you climb, starts his
-  rounds at dusk once you reach middle management, and Deep Staff receive
-  two reviews per night. Fines scale with seniority. Vending machines
-  begin dispensing things that are not snacks: notes, cassettes, punch
-  cards, photographs that should not exist.
-* **Down** — the game looks normal at the surface. Dig far enough below it
-  and it begins, quietly, to be something else. This is the part we are
-  still carving out.
+* `/zoomies` (level 1) — mobility. The island is ~350 blocks across;
+  now you can actually cover it.
+* `/rainbow` (level 2) — aesthetics. For building. No apologies.
+* `/party` (level 3) — the sky spins. Purely morale.
+* `/moon` (level 4) — low gravity. Chasms stop being walls; a trampoline
+  chest under low gravity is nearly a launch pad.
+* `/boom` (level 5) — demolition. The sealed dark-stone vaults with no
+  doors and no windows are full of crates, and now they open.
+* `/cloudwalk` (level 8) — the clouds become floor. Those dark squares you
+  can see from the ground, up on the cloud layer? Sky depots. Crates and a
+  working dispenser, at altitude.
+
+Decommissioning HR-1 lifts the administrative lock and restores everything
+at once — the shortcut is guarded by the fight.
+
+Unit classes as you level: PROBATIONARY UNIT → EMPLOYEE OF THE MONTH (3) →
+MIDDLE MANAGEMENT (6) → DEEP STAFF (10). Your sensors report more the
+longer you are awake — and if you dig deep enough, they begin reporting
+things like a thermal anomaly with its source below, or rhythmic knocking
+with no source at all. That part is still being carved out.
 
 #### Free equipment
 
-No clearance needed for `/joke`, `/pigeon`, `/day`, `/night`, `/time H`,
+No module needed for `/joke`, `/pigeon`, `/day`, `/night`, `/time H`,
 `/sethome` and `/home` — and a fresh questionable window title on every
 launch.
 
@@ -185,6 +208,7 @@ python server.py [HOST [PORT]]
 - F to show the scene in orthographic mode.
 - O to observe players in the main view.
 - P to observe players in the picture-in-picture view.
+- Q to pull up the field pad (once you have it); Enter accepts orders.
 - T to type text into chat.
 - Forward slash (/) to enter a command.
 - Backquote (`) to write text on any block (signs).
