@@ -9,29 +9,82 @@ http://www.michaelfogleman.com/craft/
 
 ![Screenshot](https://i.imgur.com/SH7wcas.png)
 
-### The Oingo Additions
+### The World of OINGO CORP
 
-Ten-ish things Craftoingo adds on top of Craft. Type `/help` in game to see
-them all.
+Craftoingo is what's left after OINGO CORP, a failed terraforming concern,
+went under. You are their last remaining contractor. Type `/help` in game
+for orientation.
 
-1. **Splash title roulette** — a different questionable window title on every
-   launch ("Craftoingo: gravity sold separately").
-2. **`/boom`** — demolition punch mode. Punching a block blows a crater in the
-   landscape. Punch near your own feet to launch yourself skyward.
-3. **Trampoline chests** — chests are spring-loaded. Land on one and find out.
-   Standing on them is not an option.
-4. **`/moon`** — moon gravity. Combine with `/boom` for an improvised rocket
-   program.
-5. **`/zoomies`** — triple speed with a wide-angle FOV kick. Gotta go fast.
-6. **`/rainbow`** — every block you place auto-cycles through all 32 colors.
-   Instant tasteful architecture.
-7. **`/party`** — the sun does a full lap of the sky every 12 seconds. Disco
-   lighting for your build session.
-8. **`/cloudwalk`** — clouds become solid. The sky is a floor now (they sit at
-   y 64-72; a moon-gravity boom launch gets you up there).
-9. **`/day`, `/night`, `/time H`** — boss the sun around.
-10. **`/joke`** — certified block-related dad jokes in chat.
-11. **`/sethome` and `/home`** — mark a spot, teleport back to it.
+#### Structures
+
+The wilderness is littered with company assets: cracked asphalt roads
+(potholes included) running to nowhere with faded center lines and roadside
+litter, crumbling ruins of cobblestone, brick and rusted metal — some still
+furnished with a vending machine or a booby-trapped chest — employee
+graveyards under dead trees, toxic sludge pits with a single caution block
+posted for legal reasons, and the occasional fully stocked vending machine
+miles from anything.
+
+#### Items
+
+Eight grim new placeable blocks: rust, asphalt, road line, garbage, sludge,
+gravestone, vending machine and caution block. They cycle with `E` like
+everything else.
+
+#### Entities
+
+* **Pigeons** — your colleagues. They wander the roads, flee when you get
+  too close (much further if you smell like sludge), and occasionally erupt
+  from disturbed graves. `/pigeon` summons one if you are lonely.
+* **The HR Inspector** — a floating, bespectacled head of middle management
+  that patrols at night. He walks through terrain, because walls are a
+  mindset. You will hear slow, purposeful footsteps before you see him. If
+  he reaches you, coins are deducted and you are wished a great weekend.
+  Outrun him until dawn, or pay.
+
+#### Mechanics
+
+* **Work orders** — a rotating quota (demolition, sanitation, urban
+  development) shown in the HUD next to your balance. Completing one pays
+  oingocoins and issues the next, slightly larger one. Purpose!
+* **Oingocoins** — earned by quota, lost to HR and vending machines,
+  persisted across sessions in `oingo_career.txt`.
+* **Vending machines** — punch one to spend 5 coins on a mystery outcome:
+  lukewarm OINGO-COLA (45s of speed), mystery meat (45s of lighter bones),
+  expired coffee (time gets weird), a single sad cracker, a jackpot, or
+  nothing at all. Destroying company property is fined instantly.
+* **Sludge** — standing on it slows you down and marks you; the pigeons
+  will know.
+* **Trampoline chests** — chests are spring-loaded and cannot be stood on.
+  Ruins sometimes contain one. Sorry in advance.
+
+#### Progression
+
+Everything above feeds one ladder: your **level**, persisted in
+`oingo_career.txt` and shown in the HUD with your current title.
+
+* **Titles** — PROBATIONARY UNIT → EMPLOYEE OF THE MONTH (level 3) →
+  MIDDLE MANAGEMENT (level 6) → DEEP STAFF (level 10). Each promotion is
+  announced. The announcements do not get more reassuring.
+* **Clearances** — the fun commands are company equipment, unlocked by
+  level: `/zoomies` (1), `/rainbow` (2), `/party` (3), `/moon` (4),
+  `/boom` (5), `/cloudwalk` (8). Asking early is noted.
+* **Work orders diversify** — sanitation unlocks at level 1, landscaping
+  ("mow the wilderness") at 2, memorial services at 4.
+* **The world keeps pace** — HR walks faster as you climb, starts his
+  rounds at dusk once you reach middle management, and Deep Staff receive
+  two reviews per night. Fines scale with seniority. Vending machines
+  begin dispensing things that are not snacks: notes, cassettes, punch
+  cards, photographs that should not exist.
+* **Down** — the game looks normal at the surface. Dig far enough below it
+  and it begins, quietly, to be something else. This is the part we are
+  still carving out.
+
+#### Free equipment
+
+No clearance needed for `/joke`, `/pigeon`, `/day`, `/night`, `/time H`,
+`/sethome` and `/home` — and a fresh questionable window title on every
+launch.
 
 ### Features (inherited from Craft)
 
@@ -182,16 +235,21 @@ Teleport back to the spawn point.
 
 List the Craftoingo extras in chat.
 
-    /boom
-    /party
-    /moon
     /zoomies
     /rainbow
+    /party
+    /moon
+    /boom
     /cloudwalk
 
-Toggle demolition punches, disco daylight, moon gravity, triple speed,
-rainbow block placement, and solid clouds. All of them stack. You have been
-warned.
+Toggle triple speed, rainbow block placement, disco daylight, moon gravity,
+demolition punches, and solid clouds — in unlock order. Each requires the
+matching level clearance (1, 2, 3, 4, 5 and 8). All of them stack. You have
+been warned.
+
+    /pigeon
+
+Summon a colleague. It expects nothing from you.
 
     /day
     /night

@@ -25,6 +25,14 @@
 #define SUN_FLOWER 21
 #define WHITE_FLOWER 22
 #define BLUE_FLOWER 23
+#define RUST 24
+#define ASPHALT 25
+#define ROAD_LINE 26
+#define GARBAGE 27
+#define SLUDGE 28
+#define GRAVESTONE 29
+#define VENDING 30
+#define CAUTION 31
 #define COLOR_00 32
 #define COLOR_01 33
 #define COLOR_02 34
@@ -57,6 +65,10 @@
 #define COLOR_29 61
 #define COLOR_30 62
 #define COLOR_31 63
+
+// mob skins: never placed in the world, only used to texture mob cubes
+#define PIGEON_SKIN 64
+#define HR_SKIN 65
 
 extern const int items[];
 extern const int item_count;

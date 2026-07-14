@@ -28,6 +28,11 @@
 #define MAX_PATH_LENGTH 256
 #define MAX_ADDR_LENGTH 256
 
+#define MAX_MOBS 24
+#define MOB_PIGEON 0
+#define MOB_HR 1
+#define CAREER_PATH "oingo_career.txt"
+
 #define ALIGN_LEFT 0
 #define ALIGN_CENTER 1
 #define ALIGN_RIGHT 2
@@ -101,6 +106,19 @@ typedef struct {
 } Player;
 
 typedef struct {
+    int active;
+    int type;
+    float x;
+    float y;
+    float z;
+    float rx;
+    float dy;
+    float vx;
+    float vz;
+    double think;
+} Mob;
+
+typedef struct {
     GLuint program;
     GLuint position;
     GLuint normal;
@@ -156,6 +174,22 @@ typedef struct {
     float boost_dy;
     int has_home;
     State home;
+    double game_time;
+    int coins;
+    int level;
+    int quota_type;
+    int quota_progress;
+    int quota_target;
+    double cola_until;
+    double meat_until;
+    double coffee_until;
+    double stink_until;
+    int hr_tonight;
+    double dawn_since;
+    double next_pigeon;
+    double next_whisper;
+    double next_depth;
+    Mob mobs[MAX_MOBS];
     Block block0;
     Block block1;
     Block copy0;
@@ -289,6 +323,12 @@ GLuint gen_plant_buffer(float x, float y, float z, float n, int w) {
 GLuint gen_player_buffer(float x, float y, float z, float rx, float ry) {
     GLfloat *data = malloc_faces(10, 6);
     make_player(data, x, y, z, rx, ry);
+    return gen_faces(10, 6, data);
+}
+
+GLuint gen_mob_buffer(float x, float y, float z, float rx, float n, int w) {
+    GLfloat *data = malloc_faces(10, 6);
+    make_mob(data, x, y, z, rx, n, w);
     return gen_faces(10, 6, data);
 }
 
@@ -1727,6 +1767,33 @@ void render_players(Attrib *attrib, Player *player) {
     }
 }
 
+void render_mobs(Attrib *attrib, Player *player) {
+    State *s = &player->state;
+    float matrix[16];
+    set_matrix_3d(
+        matrix, g->width, g->height,
+        s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
+    glUseProgram(attrib->program);
+    glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
+    glUniform3f(attrib->camera, s->x, s->y, s->z);
+    glUniform1i(attrib->sampler, 0);
+    glUniform1f(attrib->timer, time_of_day());
+    for (int i = 0; i < MAX_MOBS; i++) {
+        Mob *m = g->mobs + i;
+        if (!m->active) {
+            continue;
+        }
+        float n = m->type == MOB_HR ? 0.42 : 0.18;
+        // pigeons sit on the ground; HR floats at eye height like players
+        float y = m->type == MOB_HR ? m->y : m->y - 0.5 + n;
+        GLuint buffer = gen_mob_buffer(
+            m->x, y, m->z, m->rx, n,
+            m->type == MOB_HR ? HR_SKIN : PIGEON_SKIN);
+        draw_triangles_3d_ao(attrib, buffer, 36);
+        del_buffer(buffer);
+    }
+}
+
 void render_sky(Attrib *attrib, Player *player, GLuint buffer) {
     State *s = &player->state;
     float matrix[16];
@@ -1815,6 +1882,417 @@ void add_message(const char *text) {
     snprintf(
         g->messages[g->message_index], MAX_TEXT_LENGTH, "%s", text);
     g->message_index = (g->message_index + 1) % MAX_MESSAGES;
+}
+
+void load_career() {
+    g->coins = 10;
+    g->level = 0;
+    FILE *file = fopen(CAREER_PATH, "r");
+    if (file) {
+        if (fscanf(file, "%d %d", &g->coins, &g->level) != 2) {
+            g->coins = 10;
+            g->level = 0;
+        }
+        fclose(file);
+    }
+}
+
+void save_career() {
+    FILE *file = fopen(CAREER_PATH, "w");
+    if (file) {
+        fprintf(file, "%d %d\n", g->coins, g->level);
+        fclose(file);
+    }
+}
+
+// the employee ladder: the higher you climb, the less normal it gets
+int career_tier() {
+    if (g->level >= 10) {
+        return 3;
+    }
+    if (g->level >= 6) {
+        return 2;
+    }
+    if (g->level >= 3) {
+        return 1;
+    }
+    return 0;
+}
+
+static const char *tier_titles[4] = {
+    "PROBATIONARY UNIT",
+    "EMPLOYEE OF THE MONTH",
+    "MIDDLE MANAGEMENT",
+    "DEEP STAFF"
+};
+
+typedef struct {
+    const char *command;
+    const char *name;
+    int level;
+} Clearance;
+
+static const Clearance clearances[] = {
+    {"/zoomies", "FIELD MOBILITY", 1},
+    {"/rainbow", "AESTHETICS LICENSE", 2},
+    {"/party", "MORALE AUTHORITY", 3},
+    {"/moon", "GRAVITY WAIVER", 4},
+    {"/boom", "DEMOLITION CLEARANCE", 5},
+    {"/cloudwalk", "SKY ACCESS", 8},
+};
+
+#define CLEARANCE_COUNT ((int)(sizeof(clearances) / sizeof(clearances[0])))
+
+int has_clearance(const char *command) {
+    for (int i = 0; i < CLEARANCE_COUNT; i++) {
+        if (strcmp(clearances[i].command, command) != 0) {
+            continue;
+        }
+        if (g->level >= clearances[i].level) {
+            return 1;
+        }
+        char text[MAX_TEXT_LENGTH];
+        snprintf(text, MAX_TEXT_LENGTH,
+            "CLEARANCE DENIED: %s requires level %d. You are level %d.",
+            clearances[i].command, clearances[i].level, g->level);
+        add_message(text);
+        add_message("Your curiosity has been noted.");
+        return 0;
+    }
+    return 1;
+}
+
+#define QUOTA_DEMOLITION 0
+#define QUOTA_BUILD 1
+#define QUOTA_GARBAGE 2
+#define QUOTA_LANDSCAPING 3
+#define QUOTA_MEMORIAL 4
+
+typedef struct {
+    const char *name;
+    int base;
+    int per_level;
+    int min_level;
+} QuotaType;
+
+// min_level must stay ascending so unlocked types form a prefix
+static const QuotaType quota_types[] = {
+    {"demolish ruin blocks", 12, 2, 0},
+    {"place blocks", 20, 3, 0},
+    {"collect garbage", 6, 1, 1},
+    {"mow the wilderness", 10, 2, 2},
+    {"install memorial units", 4, 1, 4},
+};
+
+#define QUOTA_TYPE_COUNT ((int)(sizeof(quota_types) / sizeof(quota_types[0])))
+
+void new_quota() {
+    char text[MAX_TEXT_LENGTH];
+    int unlocked = 0;
+    for (int i = 0; i < QUOTA_TYPE_COUNT; i++) {
+        if (g->level >= quota_types[i].min_level) {
+            unlocked++;
+        }
+    }
+    g->quota_type = (g->level * 7 + 3) % unlocked;
+    g->quota_target = quota_types[g->quota_type].base +
+        quota_types[g->quota_type].per_level * g->level;
+    g->quota_progress = 0;
+    snprintf(text, MAX_TEXT_LENGTH,
+        "WORK ORDER #%d: %s (0/%d). Enthusiasm is mandatory.",
+        g->level + 1, quota_types[g->quota_type].name, g->quota_target);
+    add_message(text);
+}
+
+void quota_credit(int type) {
+    if (type != g->quota_type) {
+        return;
+    }
+    g->quota_progress++;
+    if (g->quota_progress >= g->quota_target) {
+        static const char *payday_lines[4] = {
+            "OINGO CORP thanks you for your sacrifice.",
+            "OINGO CORP thanks you for your continued sacrifice.",
+            "The paycheck is addressed to someone with your exact name.",
+            "Payment processed from an account that closed in 1987."
+        };
+        static const char *promotion_lines[4] = {
+            "",
+            "PROMOTION: EMPLOYEE OF THE MONTH. There is no photo wall.",
+            "PROMOTION: MIDDLE MANAGEMENT. You remember applying. Don't you?",
+            "PROMOTION: DEEP STAFF. Orientation begins below."
+        };
+        char text[MAX_TEXT_LENGTH];
+        int pay = 10 + g->level * 2;
+        int old_tier = career_tier();
+        g->coins += pay;
+        g->level++;
+        save_career();
+        snprintf(text, MAX_TEXT_LENGTH,
+            "PAYCHECK: +%d oingocoins. %s",
+            pay, payday_lines[old_tier]);
+        add_message(text);
+        if (career_tier() != old_tier) {
+            add_message(promotion_lines[career_tier()]);
+        }
+        for (int i = 0; i < CLEARANCE_COUNT; i++) {
+            if (clearances[i].level == g->level) {
+                snprintf(text, MAX_TEXT_LENGTH,
+                    "CLEARANCE GRANTED: %s -- %s.",
+                    clearances[i].command, clearances[i].name);
+                add_message(text);
+            }
+        }
+        new_quota();
+    }
+}
+
+void vend() {
+    if (g->coins < 5) {
+        add_message("The machine displays: INSUFFICIENT FUNDS. It hums smugly.");
+        return;
+    }
+    g->coins -= 5;
+    int roll = rand() % 100;
+    if (roll < 30) {
+        // past a certain pay grade, the machine starts dispensing history
+        if (career_tier() >= 1 && rand() % 2) {
+            static const char *notes[4] = {
+                "A note falls out: 'THE MACHINES WERE HERE FIRST.'",
+                "A cassette labeled ONBOARDING 1987. Nothing can play it.",
+                "A punch card with your name on it. Hire date: illegible.",
+                "A photo of this exact vending machine, but much older.",
+            };
+            add_message(notes[rand() % (career_tier() >= 3 ? 4 : 3)]);
+        }
+        else {
+            add_message("The machine eats your money. Somewhere, a manager smiles.");
+        }
+    }
+    else if (roll < 50) {
+        g->cola_until = g->game_time + 45;
+        add_message("CLUNK. Lukewarm OINGO-COLA. You feel incredibly fast. (45s)");
+    }
+    else if (roll < 65) {
+        g->meat_until = g->game_time + 45;
+        add_message("CLUNK. Mystery meat. Your bones feel... lighter. (45s)");
+    }
+    else if (roll < 80) {
+        g->coffee_until = g->game_time + 30;
+        add_message("CLUNK. Expired coffee. Time gets weird for a while. (30s)");
+    }
+    else if (roll < 92) {
+        g->coins += 2;
+        add_message("A single sad cracker falls out. Partial refund: 2 coins.");
+    }
+    else {
+        g->coins += 25;
+        add_message("KA-CHUNK. The machine malfunctions in your favor: +25 coins.");
+    }
+    save_career();
+}
+
+int count_mobs(int type) {
+    int result = 0;
+    for (int i = 0; i < MAX_MOBS; i++) {
+        if (g->mobs[i].active && g->mobs[i].type == type) {
+            result++;
+        }
+    }
+    return result;
+}
+
+Mob *spawn_mob(int type, float x, float y, float z) {
+    for (int i = 0; i < MAX_MOBS; i++) {
+        Mob *m = g->mobs + i;
+        if (!m->active) {
+            memset(m, 0, sizeof(Mob));
+            m->active = 1;
+            m->type = type;
+            m->x = x;
+            m->y = y;
+            m->z = z;
+            return m;
+        }
+    }
+    return 0;
+}
+
+Mob *spawn_mob_near(int type, float px, float pz, int min_r, int max_r) {
+    float angle = (rand() % 628) / 100.0;
+    float r = min_r + rand() % (max_r - min_r + 1);
+    float x = roundf(px + cosf(angle) * r);
+    float z = roundf(pz + sinf(angle) * r);
+    int h = highest_block(x, z);
+    if (h <= 0) {
+        return 0;
+    }
+    return spawn_mob(type, x, h + (type == MOB_HR ? 2 : 1), z);
+}
+
+void update_mobs(double dt) {
+    State *s = &g->players->state;
+    float daylight = get_daylight();
+    int moon = g->moon_gravity || g->game_time < g->meat_until;
+    int tier = career_tier();
+    // senior staff attract attention earlier in the evening
+    float night = tier >= 2 ? 0.3 : 0.2;
+    // pigeons drift in; this world is mostly theirs now
+    if (g->game_time > g->next_pigeon) {
+        g->next_pigeon = g->game_time + 3;
+        if (count_mobs(MOB_PIGEON) < 6) {
+            spawn_mob_near(MOB_PIGEON, s->x, s->z, 12, 28);
+        }
+    }
+    if (daylight < night) {
+        g->dawn_since = 0;
+        if (!g->hr_tonight) {
+            g->hr_tonight = 1;
+            Mob *hr = spawn_mob_near(MOB_HR, s->x, s->z, 20, 30);
+            if (hr) {
+                hr->think = g->game_time + 45; // minimum shift length
+                if (tier >= 3) {
+                    Mob *hr2 = spawn_mob_near(MOB_HR, s->x, s->z, 20, 30);
+                    if (hr2) {
+                        hr2->think = g->game_time + 45;
+                    }
+                    add_message(
+                        "You feel performance reviews approaching. Plural.");
+                }
+                else {
+                    add_message("You feel a performance review approaching.");
+                }
+            }
+        }
+        if (tier >= 1 && g->game_time > g->next_whisper) {
+            static const char *whispers[3] = {
+                "A pigeon has been watching you work. It looks away.",
+                "The pigeons are quieter tonight.",
+                "Every pigeon is facing the same direction. Not toward you."
+            };
+            if (g->next_whisper > 0) {
+                add_message(whispers[tier - 1]);
+            }
+            g->next_whisper = g->game_time + 60 + rand() % 60;
+        }
+    }
+    else {
+        // sustained daylight resets the night; disco flicker does not
+        if (g->dawn_since == 0) {
+            g->dawn_since = g->game_time;
+        }
+        if (g->game_time - g->dawn_since > 30) {
+            g->hr_tonight = 0;
+        }
+    }
+    for (int i = 0; i < MAX_MOBS; i++) {
+        Mob *m = g->mobs + i;
+        if (!m->active) {
+            continue;
+        }
+        float dx = s->x - m->x;
+        float dz = s->z - m->z;
+        float dist = sqrtf(dx * dx + dz * dz);
+        if (m->type == MOB_PIGEON) {
+            if (dist > 60) {
+                m->active = 0;
+                continue;
+            }
+            float flee = g->game_time < g->stink_until ? 9 : 3.5;
+            if (dist < flee && dist > 0.1) {
+                m->vx = -dx / dist * 4.5;
+                m->vz = -dz / dist * 4.5;
+                if (m->dy == 0) {
+                    m->dy = 8;
+                }
+                m->think = g->game_time + 0.5;
+            }
+            else if (g->game_time > m->think) {
+                m->think = g->game_time + 1 + rand() % 4;
+                if (rand() % 2) {
+                    float a = (rand() % 628) / 100.0;
+                    m->vx = cosf(a) * 0.8;
+                    m->vz = sinf(a) * 0.8;
+                    if (m->dy == 0 && rand() % 4 == 0) {
+                        m->dy = 3;
+                    }
+                }
+                else {
+                    m->vx = 0;
+                    m->vz = 0;
+                }
+            }
+            if (m->vx || m->vz) {
+                m->rx = atan2f(m->vz, m->vx) + RADIANS(90);
+            }
+        }
+        else {
+            if (daylight >= night && g->game_time > m->think) {
+                m->active = 0;
+                add_message("HR clocks out. You survive another quarter.");
+                continue;
+            }
+            float hr_speed = 2.4 + tier * 0.3;
+            if (dist > 0.1) {
+                m->vx = dx / dist * hr_speed;
+                m->vz = dz / dist * hr_speed;
+            }
+            m->rx = atan2f(dz, dx) + RADIANS(90);
+            if (dist < 12) {
+                static const char *step_lines[4] = {
+                    "You hear slow, purposeful footsteps.",
+                    "You hear slow, purposeful footsteps.",
+                    "The footsteps match yours exactly.",
+                    "The footsteps stopped. That is worse."
+                };
+                static double last_steps = 0;
+                if (g->game_time - last_steps > 8 ||
+                    last_steps > g->game_time)
+                {
+                    last_steps = g->game_time;
+                    add_message(step_lines[tier]);
+                }
+            }
+            if (dist < 1.5 && fabsf(s->y - m->y) < 3) {
+                char text[MAX_TEXT_LENGTH];
+                int fine = MIN(g->coins,
+                    MAX(5, g->coins / (tier >= 2 ? 2 : 4)));
+                m->active = 0;
+                add_message("HR: 'We found irregularities in your timesheet.'");
+                if (fine > 0) {
+                    g->coins -= fine;
+                    save_career();
+                    snprintf(text, MAX_TEXT_LENGTH,
+                        "%d oingocoins deducted. 'Have a great weekend.'",
+                        fine);
+                    add_message(text);
+                }
+                else {
+                    add_message("You have nothing left to deduct. It nods.");
+                }
+                continue;
+            }
+        }
+        if (m->type == MOB_PIGEON) {
+            m->dy -= dt * (moon ? 4 : 25);
+            m->dy = MAX(m->dy, -60);
+            m->x += m->vx * dt;
+            m->y += m->dy * dt;
+            m->z += m->vz * dt;
+            if (collide(1, &m->x, &m->y, &m->z)) {
+                m->dy = 0;
+            }
+            if (m->y < 0) {
+                m->active = 0;
+            }
+        }
+        else {
+            // HR does not respect walls; walls are a mindset
+            m->x += m->vx * dt;
+            m->z += m->vz * dt;
+            m->y += (s->y - m->y) * MIN(1.0f, (float)dt * 1.5f);
+        }
+    }
 }
 
 void login() {
@@ -2082,47 +2560,70 @@ void parse_command(const char *buffer, int forward) {
         }
     }
     else if (strcmp(buffer, "/help") == 0) {
-        add_message("-- CRAFTOINGO EXTRAS --");
-        add_message("/boom /party /moon /zoomies /rainbow /cloudwalk");
-        add_message("/joke /day /night /time H /sethome /home");
-        add_message("Also: chests are trampolines. You're welcome.");
+        add_message("-- OINGO CORP ORIENTATION --");
+        add_message("Meet the WORK ORDER (top left) to earn oingocoins.");
+        add_message("Punch a vending machine to spend 5 coins. Results vary.");
+        add_message("HR patrols at night. Avoid your performance review.");
+        add_message("Clearances unlock by level: /zoomies /rainbow /party");
+        add_message("/moon /boom /cloudwalk. Also /joke /pigeon /sethome /home");
     }
     else if (strcmp(buffer, "/boom") == 0) {
-        g->boom_mode = !g->boom_mode;
-        add_message(g->boom_mode ?
-            "Boom mode ON. Punch responsibly." :
-            "Boom mode OFF. The landscape thanks you.");
+        if (has_clearance("/boom")) {
+            g->boom_mode = !g->boom_mode;
+            add_message(g->boom_mode ?
+                "Boom mode ON. Punch responsibly." :
+                "Boom mode OFF. The landscape thanks you.");
+        }
     }
     else if (strcmp(buffer, "/party") == 0) {
-        g->party_mode = !g->party_mode;
-        g->day_length = g->party_mode ? 12 : DAY_LENGTH;
-        add_message(g->party_mode ?
-            "PARTY MODE! The sun is the DJ now." :
-            "Party's over. The sun sobers up.");
+        if (has_clearance("/party")) {
+            g->party_mode = !g->party_mode;
+            add_message(g->party_mode ?
+                "PARTY MODE! The sun is the DJ now." :
+                "Party's over. The sun sobers up.");
+        }
     }
     else if (strcmp(buffer, "/moon") == 0) {
-        g->moon_gravity = !g->moon_gravity;
-        add_message(g->moon_gravity ?
-            "Moon gravity ON. One small step..." :
-            "Moon gravity OFF. Welcome back to Earth.");
+        if (has_clearance("/moon")) {
+            g->moon_gravity = !g->moon_gravity;
+            add_message(g->moon_gravity ?
+                "Moon gravity ON. One small step..." :
+                "Moon gravity OFF. Welcome back to Earth.");
+        }
     }
     else if (strcmp(buffer, "/zoomies") == 0) {
-        g->zoomies = !g->zoomies;
-        add_message(g->zoomies ?
-            "ZOOMIES! Gotta go fast." :
-            "Zoomies off. Walking like a person again.");
+        if (has_clearance("/zoomies")) {
+            g->zoomies = !g->zoomies;
+            add_message(g->zoomies ?
+                "ZOOMIES! Gotta go fast." :
+                "Zoomies off. Walking like a person again.");
+        }
     }
     else if (strcmp(buffer, "/rainbow") == 0) {
-        g->rainbow_mode = !g->rainbow_mode;
-        add_message(g->rainbow_mode ?
-            "Rainbow mode ON. Every block a surprise." :
-            "Rainbow mode OFF. Back to picking colors yourself.");
+        if (has_clearance("/rainbow")) {
+            g->rainbow_mode = !g->rainbow_mode;
+            add_message(g->rainbow_mode ?
+                "Rainbow mode ON. Every block a surprise." :
+                "Rainbow mode OFF. Back to picking colors yourself.");
+        }
     }
     else if (strcmp(buffer, "/cloudwalk") == 0) {
-        cloudwalk_mode = !cloudwalk_mode;
-        add_message(cloudwalk_mode ?
-            "Cloudwalking ON. The sky is a floor now." :
-            "Cloudwalking OFF. Clouds are a lie again.");
+        if (has_clearance("/cloudwalk")) {
+            cloudwalk_mode = !cloudwalk_mode;
+            add_message(cloudwalk_mode ?
+                "Cloudwalking ON. The sky is a floor now." :
+                "Cloudwalking OFF. Clouds are a lie again.");
+        }
+    }
+    else if (strcmp(buffer, "/pigeon") == 0) {
+        State *s = &g->players->state;
+        float vx, vy, vz;
+        get_sight_vector(s->rx, 0, &vx, &vy, &vz);
+        if (spawn_mob(MOB_PIGEON,
+            roundf(s->x + vx * 4), s->y, roundf(s->z + vz * 4)))
+        {
+            add_message("A colleague arrives. It expects nothing from you.");
+        }
     }
     else if (strcmp(buffer, "/joke") == 0) {
         static const char *jokes[][2] = {
@@ -2244,7 +2745,8 @@ void parse_command(const char *buffer, int forward) {
     }
 }
 
-void explode(int cx, int cy, int cz, int radius) {
+int explode(int cx, int cy, int cz, int radius) {
+    int vandalism = 0;
     for (int x = cx - radius; x <= cx + radius; x++) {
         for (int y = cy - radius; y <= cy + radius; y++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
@@ -2257,13 +2759,18 @@ void explode(int cx, int cy, int cz, int radius) {
                 if (y <= 0 || y >= 256) {
                     continue;
                 }
-                if (is_destructable(get_block(x, y, z))) {
+                int w = get_block(x, y, z);
+                if (is_destructable(w)) {
+                    if (w == VENDING) {
+                        vandalism++;
+                    }
                     set_block(x, y, z, 0);
                     record_block(x, y, z, 0);
                 }
             }
         }
     }
+    return vandalism;
 }
 
 void on_light() {
@@ -2279,6 +2786,10 @@ void on_left_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    if (hy > 0 && hy < 256 && hw == VENDING && !g->boom_mode) {
+        vend();
+        return;
+    }
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
         if (g->boom_mode) {
             static const char *boom_lines[] = {
@@ -2289,7 +2800,7 @@ void on_left_click() {
                 "Ka-blammo!",
             };
             int boom_count = sizeof(boom_lines) / sizeof(boom_lines[0]);
-            explode(hx, hy, hz, 3);
+            int vandalism = explode(hx, hy, hz, 3);
             float d = sqrtf(
                 powf(hx - s->x, 2) +
                 powf(hy - s->y, 2) +
@@ -2298,10 +2809,46 @@ void on_left_click() {
                 g->boost_dy = 16;
             }
             add_message(boom_lines[rand() % boom_count]);
+            if (vandalism) {
+                int fine = MIN(g->coins, 15);
+                add_message("COMPANY PROPERTY DESTROYED. A fine arrives instantly.");
+                if (fine > 0) {
+                    char text[MAX_TEXT_LENGTH];
+                    g->coins -= fine;
+                    save_career();
+                    snprintf(text, MAX_TEXT_LENGTH,
+                        "-%d oingocoins, deducted with prejudice.", fine);
+                    add_message(text);
+                }
+            }
         }
         else {
             set_block(hx, hy, hz, 0);
             record_block(hx, hy, hz, 0);
+            if (hw == COBBLE || hw == BRICK || hw == PLANK || hw == RUST) {
+                quota_credit(QUOTA_DEMOLITION);
+            }
+            else if (hw == GARBAGE) {
+                quota_credit(QUOTA_GARBAGE);
+            }
+            else if (is_plant(hw)) {
+                quota_credit(QUOTA_LANDSCAPING);
+            }
+            else if (hw == GRAVESTONE && rand() % 4 == 0) {
+                for (int i = 0; i < 3; i++) {
+                    spawn_mob(MOB_PIGEON,
+                        hx + rand() % 3 - 1, hy + 1, hz + rand() % 3 - 1);
+                }
+                add_message("The grave was full of pigeons. Of course it was.");
+            }
+            if (hy <= 6 && g->game_time > g->next_depth &&
+                (g->next_depth == 0 || rand() % 3 == 0))
+            {
+                g->next_depth = g->game_time + 20;
+                add_message(hy <= 3 ?
+                    "You hear pipes down here. There are no pipes." :
+                    "The stone is warm down here.");
+            }
             if (is_plant(get_block(hx, hy + 1, hz))) {
                 set_block(hx, hy + 1, hz, 0);
             }
@@ -2322,6 +2869,10 @@ void on_right_click() {
             }
             set_block(hx, hy, hz, w);
             record_block(hx, hy, hz, w);
+            quota_credit(QUOTA_BUILD);
+            if (w == GRAVESTONE) {
+                quota_credit(QUOTA_MEMORIAL);
+            }
         }
     }
 }
@@ -2591,11 +3142,13 @@ void handle_movement(double dt) {
     State *s = &g->players->state;
     int sz = 0;
     int sx = 0;
+    int zoom_active = g->zoomies || g->game_time < g->cola_until;
+    int moon_active = g->moon_gravity || g->game_time < g->meat_until;
     if (!g->typing) {
         float m = dt * 1.0;
         g->ortho = glfwGetKey(g->window, CRAFT_KEY_ORTHO) ? 64 : 0;
         g->fov = glfwGetKey(g->window, CRAFT_KEY_ZOOM) ?
-            15 : (g->zoomies ? 85 : 65);
+            15 : (zoom_active ? 85 : 65);
         if (glfwGetKey(g->window, CRAFT_KEY_FORWARD)) sz--;
         if (glfwGetKey(g->window, CRAFT_KEY_BACKWARD)) sz++;
         if (glfwGetKey(g->window, CRAFT_KEY_LEFT)) sx--;
@@ -2622,8 +3175,17 @@ void handle_movement(double dt) {
         g->boost_dy = 0;
     }
     float speed = g->flying ? 20 : 5;
-    if (g->zoomies) {
+    if (zoom_active) {
         speed *= 3;
+    }
+    if (!g->flying &&
+        get_block(roundf(s->x), roundf(s->y) - 2, roundf(s->z)) == SLUDGE)
+    {
+        speed *= 0.45;
+        if (g->game_time > g->stink_until) {
+            add_message("You step in corporate sludge. The pigeons will know.");
+        }
+        g->stink_until = g->game_time + 45;
     }
     int estimate = roundf(sqrtf(
         powf(vx * speed, 2) +
@@ -2639,7 +3201,7 @@ void handle_movement(double dt) {
             dy = 0;
         }
         else {
-            dy -= ut * (g->moon_gravity ? 4 : 25);
+            dy -= ut * (moon_active ? 4 : 25);
             dy = MAX(dy, -250);
         }
         s->x += vx;
@@ -2790,6 +3352,28 @@ void reset_model() {
     g->boost_dy = 0;
     g->has_home = 0;
     cloudwalk_mode = 0;
+    g->game_time = 0;
+    g->cola_until = 0;
+    g->meat_until = 0;
+    g->coffee_until = 0;
+    g->stink_until = 0;
+    g->hr_tonight = 0;
+    g->dawn_since = 0;
+    g->next_pigeon = 0;
+    g->next_whisper = 0;
+    g->next_depth = 0;
+    memset(g->mobs, 0, sizeof(Mob) * MAX_MOBS);
+    load_career();
+    {
+        static const char *welcome_lines[4] = {
+            "OINGO CORP welcomes you back. (/help for orientation)",
+            "OINGO CORP welcomes you back. Your badge still works.",
+            "OINGO CORP welcomes you back. The building remembers you.",
+            "OINGO CORP welcomes its Deep Staff. The door was never locked."
+        };
+        add_message(welcome_lines[career_tier()]);
+    }
+    new_quota();
 }
 
 int main(int argc, char **argv) {
@@ -2961,7 +3545,6 @@ int main(int argc, char **argv) {
 
         // LOCAL VARIABLES //
         reset_model();
-        add_message("Welcome to Craftoingo! Type /help for the silly stuff.");
         FPS fps = {0, 0, 0};
         double last_commit = glfwGetTime();
         double last_update = glfwGetTime();
@@ -3002,12 +3585,22 @@ int main(int argc, char **argv) {
             dt = MIN(dt, 0.2);
             dt = MAX(dt, 0.0);
             previous = now;
+            g->game_time += dt;
 
             // HANDLE MOUSE INPUT //
             handle_mouse_input();
 
             // HANDLE MOVEMENT //
             handle_movement(dt);
+
+            // HANDLE MOBS //
+            update_mobs(dt);
+
+            // PARTY MODE AND EXPIRED COFFEE //
+            if (g->mode == MODE_OFFLINE) {
+                int disco = g->party_mode || g->game_time < g->coffee_until;
+                g->day_length = disco ? 12 : DAY_LENGTH;
+            }
 
             // HANDLE DATA FROM SERVER //
             char *buffer = client_recv();
@@ -3048,6 +3641,7 @@ int main(int argc, char **argv) {
             render_signs(&text_attrib, player);
             render_sign(&text_attrib, player);
             render_players(&block_attrib, player);
+            render_mobs(&block_attrib, player);
             if (SHOW_WIREFRAME) {
                 render_wireframe(&line_attrib, player);
             }
@@ -3077,6 +3671,18 @@ int main(int argc, char **argv) {
                     chunked(s->x), chunked(s->z), s->x, s->y, s->z,
                     g->player_count, g->chunk_count,
                     face_count * 2, hour, am_pm, fps.fps);
+                render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
+                ty -= ts * 2;
+            }
+            {
+                snprintf(
+                    text_buffer, 1024, "$%d | %s | %s %d/%d%s%s%s",
+                    g->coins, tier_titles[career_tier()],
+                    quota_types[g->quota_type].name,
+                    g->quota_progress, g->quota_target,
+                    g->game_time < g->cola_until ? " [COLA]" : "",
+                    g->game_time < g->meat_until ? " [MEAT]" : "",
+                    g->game_time < g->stink_until ? " [STINKY]" : "");
                 render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
                 ty -= ts * 2;
             }
@@ -3136,6 +3742,7 @@ int main(int argc, char **argv) {
                 render_chunks(&block_attrib, player);
                 render_signs(&text_attrib, player);
                 render_players(&block_attrib, player);
+                render_mobs(&block_attrib, player);
                 glClear(GL_DEPTH_BUFFER_BIT);
                 if (SHOW_PLAYER_NAMES) {
                     render_text(&text_attrib, ALIGN_CENTER,
@@ -3157,6 +3764,7 @@ int main(int argc, char **argv) {
         }
 
         // SHUTDOWN //
+        save_career();
         db_save_state(s->x, s->y, s->z, s->rx, s->ry);
         db_close();
         db_disable();

@@ -188,6 +188,36 @@ void make_player(
     mat_apply(data, ma, 36, 0, 10);
 }
 
+void make_mob(
+    float *data,
+    float x, float y, float z, float rx, float n, int w)
+{
+    float ao[6][4] = {0};
+    float light[6][4] = {
+        {0.8, 0.8, 0.8, 0.8},
+        {0.8, 0.8, 0.8, 0.8},
+        {0.8, 0.8, 0.8, 0.8},
+        {0.8, 0.8, 0.8, 0.8},
+        {0.8, 0.8, 0.8, 0.8},
+        {0.8, 0.8, 0.8, 0.8}
+    };
+    make_cube_faces(
+        data, ao, light,
+        1, 1, 1, 1, 1, 1,
+        blocks[w][0], blocks[w][1], blocks[w][2],
+        blocks[w][3], blocks[w][4], blocks[w][5],
+        0, 0, 0, n);
+    float ma[16];
+    float mb[16];
+    mat_identity(ma);
+    mat_rotate(mb, 0, 1, 0, rx);
+    mat_multiply(ma, mb, ma);
+    mat_apply(data, ma, 36, 3, 10);
+    mat_translate(mb, x, y, z);
+    mat_multiply(ma, mb, ma);
+    mat_apply(data, ma, 36, 0, 10);
+}
+
 void make_cube_wireframe(float *data, float x, float y, float z, float n) {
     static const float positions[8][3] = {
         {-1, -1, -1},

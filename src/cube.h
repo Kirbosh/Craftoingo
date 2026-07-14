@@ -20,6 +20,10 @@ void make_player(
     float *data,
     float x, float y, float z, float rx, float ry);
 
+void make_mob(
+    float *data,
+    float x, float y, float z, float rx, float n, int w);
+
 void make_cube_wireframe(
     float *data, float x, float y, float z, float n);
 
