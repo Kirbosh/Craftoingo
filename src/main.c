@@ -196,6 +196,14 @@ typedef struct {
     int order_id;
     int orders_taken;
     int boss_hp;
+    float integrity;
+    int inventory[256];
+    int mining_x;
+    int mining_y;
+    int mining_z;
+    int mining_w;
+    float mining_progress;
+    float mining_hardness;
     double next_pigeon;
     double next_whisper;
     double next_depth;
@@ -1899,6 +1907,8 @@ void load_career() {
     g->level = 0;
     g->admin_defeated = 0;
     g->has_pad = 0;
+    g->integrity = 100;
+    memset(g->inventory, 0, sizeof(g->inventory));
     FILE *file = fopen(CAREER_PATH, "r");
     if (file) {
         if (fscanf(file, "%d %d %d %d", &g->coins, &g->level,
@@ -1907,6 +1917,16 @@ void load_career() {
             g->coins = 10;
             g->level = 0;
         }
+        int integrity;
+        if (fscanf(file, "%d", &integrity) == 1) {
+            g->integrity = MAX(1, MIN(100, integrity));
+        }
+        int id, count;
+        while (fscanf(file, "%d %d", &id, &count) == 2) {
+            if (id > 0 && id < 256 && count > 0) {
+                g->inventory[id] = count;
+            }
+        }
         fclose(file);
     }
 }
@@ -1914,9 +1934,46 @@ void load_career() {
 void save_career() {
     FILE *file = fopen(CAREER_PATH, "w");
     if (file) {
-        fprintf(file, "%d %d %d %d\n", g->coins, g->level,
-            g->admin_defeated, g->has_pad);
+        fprintf(file, "%d %d %d %d %d\n", g->coins, g->level,
+            g->admin_defeated, g->has_pad, (int)g->integrity);
+        for (int i = 1; i < 256; i++) {
+            if (g->inventory[i] > 0) {
+                fprintf(file, "%d %d\n", i, g->inventory[i]);
+            }
+        }
         fclose(file);
+    }
+}
+
+void apply_damage(float amount, const char *source) {
+    if (amount <= 0) {
+        return;
+    }
+    g->integrity -= amount;
+    if (amount >= 4) {
+        char text[MAX_TEXT_LENGTH];
+        snprintf(text, MAX_TEXT_LENGTH, "%s INTEGRITY %d%%.",
+            source, (int)MAX(0, g->integrity));
+        add_message(text);
+    }
+    if (g->integrity <= 0) {
+        State *s = &g->players->state;
+        int lost = g->coins / 4;
+        g->coins -= lost;
+        g->integrity = 100;
+        g->boost_dy = 0;
+        s->x = 0;
+        s->z = 0;
+        force_chunks(g->players);
+        s->y = highest_block(0, 0) + 2;
+        save_career();
+        add_message("CRITICAL FAILURE. REBOOTED AT DATUM.");
+        if (lost > 0) {
+            char text[MAX_TEXT_LENGTH];
+            snprintf(text, MAX_TEXT_LENGTH,
+                "MEMORY LOSS: -%d CELLS.", lost);
+            add_message(text);
+        }
     }
 }
 
@@ -2285,6 +2342,7 @@ void update_mobs(double dt) {
                 else {
                     add_message("HR-1 FINDS NOTHING LEFT TO RECOVER.");
                 }
+                apply_damage(12, "HR-1 CONTACT.");
                 g->boost_dy = 15;
                 m->think = g->game_time + 2;
             }
@@ -2577,8 +2635,8 @@ void parse_command(const char *buffer, int forward) {
     }
     else if (strcmp(buffer, "/help") == 0) {
         add_message("-- SELF TEST --");
-        add_message("FIELD PAD: Q. ORDERS PAY CELLS. DISPENSERS TAKE 5.");
-        add_message("SALVAGE CRATES: +8 CELLS EACH. SOME PLACES ARE SEALED.");
+        add_message("HOLD PUNCH TO MINE. MATERIALS ARE FINITE. PAD: Q.");
+        add_message("ORDERS PAY CELLS. CRATES +8. ORES PAY. WATCH INTEGRITY.");
         add_message("MODULES: /zoomies 1 /rainbow 2 /party 3 /moon 4");
         add_message("/boom 5 /cloudwalk 8. FREE: /pigeon /joke /sethome");
         add_message("/home /day /night /time H");
@@ -2808,6 +2866,52 @@ void on_light() {
     }
 }
 
+void break_block(int hx, int hy, int hz, int hw) {
+    set_block(hx, hy, hz, 0);
+    record_block(hx, hy, hz, 0);
+    int drop = block_drop(hw);
+    if (drop > 0 && drop < 256) {
+        g->inventory[drop]++;
+    }
+    if (hw == COAL_ORE) {
+        g->coins += 2;
+        save_career();
+        add_message("MINERAL: COAL SEAM. +2 CELLS.");
+    }
+    else if (hw == IRON_ORE) {
+        g->coins += 6;
+        save_career();
+        add_message("MINERAL: FERROUS DEPOSIT. +6 CELLS.");
+    }
+    if (hw == COBBLE || hw == BRICK || hw == PLANK || hw == RUST) {
+        quota_credit(QUOTA_DEMOLITION);
+    }
+    else if (hw == GARBAGE) {
+        quota_credit(QUOTA_GARBAGE);
+    }
+    else if (is_plant(hw)) {
+        quota_credit(QUOTA_LANDSCAPING);
+    }
+    else if (hw == GRAVESTONE && rand() % 4 == 0) {
+        for (int i = 0; i < 3; i++) {
+            spawn_mob(MOB_PIGEON,
+                hx + rand() % 3 - 1, hy + 1, hz + rand() % 3 - 1);
+        }
+        add_message("CENSUS UPDATE: +3 BIRDS.");
+    }
+    if (hy <= 6 && g->game_time > g->next_depth &&
+        (g->next_depth == 0 || rand() % 3 == 0))
+    {
+        g->next_depth = g->game_time + 20;
+        add_message(hy <= 3 ?
+            "AUDIO: KNOCKING, RHYTHMIC. NO SOURCE FOUND." :
+            "THERMAL: +14C ANOMALY. SOURCE: BELOW.");
+    }
+    if (is_plant(get_block(hx, hy + 1, hz))) {
+        set_block(hx, hy + 1, hz, 0);
+    }
+}
+
 void on_left_click() {
     State *s = &g->players->state;
     // a swing connects with HR-1 before anything behind it
@@ -2895,66 +2999,76 @@ void on_left_click() {
         add_message("SALVAGE: +8 CELLS.");
         return;
     }
-    if (hy > 0 && hy < 256 && is_destructable(hw)) {
-        if (g->boom_mode) {
-            static const char *boom_lines[] = {
-                "KABOOM!",
-                "Boom goes the dynamite.",
-                "That block had a family!",
-                "Physics has left the chat.",
-                "Ka-blammo!",
-            };
-            int boom_count = sizeof(boom_lines) / sizeof(boom_lines[0]);
-            int vandalism = explode(hx, hy, hz, 3);
-            float d = sqrtf(
-                powf(hx - s->x, 2) +
-                powf(hy - s->y, 2) +
-                powf(hz - s->z, 2));
-            if (d < 6) {
-                g->boost_dy = 16;
-            }
-            add_message(boom_lines[rand() % boom_count]);
-            if (vandalism) {
-                char text[MAX_TEXT_LENGTH];
-                int fine = MIN(g->coins, 15);
-                g->coins -= fine;
-                save_career();
-                snprintf(text, MAX_TEXT_LENGTH,
-                    "PROPERTY DAMAGE LOGGED. -%d CELLS.", fine);
-                add_message(text);
-            }
+    if (hy > 0 && hy < 256 && is_destructable(hw) && g->boom_mode) {
+        static const char *boom_lines[] = {
+            "KABOOM!",
+            "Boom goes the dynamite.",
+            "That block had a family!",
+            "Physics has left the chat.",
+            "Ka-blammo!",
+        };
+        int boom_count = sizeof(boom_lines) / sizeof(boom_lines[0]);
+        int vandalism = explode(hx, hy, hz, 3);
+        float d = sqrtf(
+            powf(hx - s->x, 2) +
+            powf(hy - s->y, 2) +
+            powf(hz - s->z, 2));
+        if (d < 6) {
+            g->boost_dy = 16;
         }
-        else {
-            set_block(hx, hy, hz, 0);
-            record_block(hx, hy, hz, 0);
-            if (hw == COBBLE || hw == BRICK || hw == PLANK || hw == RUST) {
-                quota_credit(QUOTA_DEMOLITION);
-            }
-            else if (hw == GARBAGE) {
-                quota_credit(QUOTA_GARBAGE);
-            }
-            else if (is_plant(hw)) {
-                quota_credit(QUOTA_LANDSCAPING);
-            }
-            else if (hw == GRAVESTONE && rand() % 4 == 0) {
-                for (int i = 0; i < 3; i++) {
-                    spawn_mob(MOB_PIGEON,
-                        hx + rand() % 3 - 1, hy + 1, hz + rand() % 3 - 1);
-                }
-                add_message("CENSUS UPDATE: +3 BIRDS.");
-            }
-            if (hy <= 6 && g->game_time > g->next_depth &&
-                (g->next_depth == 0 || rand() % 3 == 0))
-            {
-                g->next_depth = g->game_time + 20;
-                add_message(hy <= 3 ?
-                    "AUDIO: KNOCKING, RHYTHMIC. NO SOURCE FOUND." :
-                    "THERMAL: +14C ANOMALY. SOURCE: BELOW.");
-            }
-            if (is_plant(get_block(hx, hy + 1, hz))) {
-                set_block(hx, hy + 1, hz, 0);
-            }
+        add_message(boom_lines[rand() % boom_count]);
+        if (vandalism) {
+            char text[MAX_TEXT_LENGTH];
+            int fine = MIN(g->coins, 15);
+            g->coins -= fine;
+            save_career();
+            snprintf(text, MAX_TEXT_LENGTH,
+                "PROPERTY DAMAGE LOGGED. -%d CELLS.", fine);
+            add_message(text);
         }
+    }
+    // ordinary blocks are mined by holding the punch; see handle_mining
+}
+
+// Minecraft-style held mining: hardness in seconds, progress per target
+void handle_mining(double dt) {
+    if (g->typing || g->pad_open || g->boom_mode) {
+        g->mining_progress = 0;
+        return;
+    }
+    int exclusive =
+        glfwGetInputMode(g->window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+    int held =
+        (exclusive && glfwGetMouseButton(
+            g->window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) ||
+        glfwGetKey(g->window, GLFW_KEY_ENTER) == GLFW_PRESS;
+    if (!held) {
+        g->mining_progress = 0;
+        return;
+    }
+    State *s = &g->players->state;
+    int hx, hy, hz;
+    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    if (hy <= 0 || hy >= 256 || !is_destructable(hw) ||
+        hw == VENDING || hw == CELL_CRATE)
+    {
+        g->mining_progress = 0;
+        return;
+    }
+    if (hx != g->mining_x || hy != g->mining_y || hz != g->mining_z ||
+        hw != g->mining_w)
+    {
+        g->mining_x = hx;
+        g->mining_y = hy;
+        g->mining_z = hz;
+        g->mining_w = hw;
+        g->mining_progress = 0;
+    }
+    g->mining_hardness = block_hardness(hw);
+    g->mining_progress += dt;
+    if (g->mining_progress >= g->mining_hardness) {
+        break_block(hx, hy, hz, hw);
+        g->mining_progress = 0;
     }
 }
 
@@ -2966,8 +3080,16 @@ void on_right_click() {
         if (!player_intersects_block(2, s->x, s->y, s->z, hx, hy, hz)) {
             int w = items[g->item_index];
             if (g->rainbow_mode) {
+                // the aesthetics module fabricates; everything else is finite
                 w = COLOR_00 + g->rainbow_index;
                 g->rainbow_index = (g->rainbow_index + 1) % 32;
+            }
+            else {
+                if (g->inventory[w] <= 0) {
+                    add_message("MATERIAL DEPLETED. MINE MORE.");
+                    return;
+                }
+                g->inventory[w]--;
             }
             set_block(hx, hy, hz, w);
             record_block(hx, hy, hz, w);
@@ -3277,10 +3399,16 @@ void handle_movement(double dt) {
     }
     float vx, vy, vz;
     get_motion_vector(g->flying, sz, sx, s->rx, s->ry, &vx, &vy, &vz);
+    int in_water =
+        get_block(roundf(s->x), roundf(s->y), roundf(s->z)) == WATER ||
+        get_block(roundf(s->x), roundf(s->y) - 1, roundf(s->z)) == WATER;
     if (!g->typing) {
         if (glfwGetKey(g->window, CRAFT_KEY_JUMP)) {
             if (g->flying) {
                 vy = 1;
+            }
+            else if (in_water) {
+                dy = 4.5;
             }
             else if (dy == 0) {
                 dy = 8;
@@ -3295,10 +3423,14 @@ void handle_movement(double dt) {
     if (zoom_active) {
         speed *= 3;
     }
+    if (in_water && !g->flying) {
+        speed *= 0.5;
+    }
     if (!g->flying &&
         get_block(roundf(s->x), roundf(s->y) - 2, roundf(s->z)) == SLUDGE)
     {
         speed *= 0.45;
+        apply_damage(dt * 0.8, "CORROSION.");
         if (g->game_time > g->stink_until) {
             add_message("CONTAMINANT: SOLE HOUSINGS. ODOR: SIGNIFICANT.");
         }
@@ -3313,9 +3445,14 @@ void handle_movement(double dt) {
     vx = vx * ut * speed;
     vy = vy * ut * speed;
     vz = vz * ut * speed;
+    float impact = 0;
     for (int i = 0; i < step; i++) {
         if (g->flying) {
             dy = 0;
+        }
+        else if (in_water) {
+            dy -= ut * 6;
+            dy = MAX(dy, -4);
         }
         else {
             dy -= ut * (moon_active ? 4 : 25);
@@ -3324,22 +3461,25 @@ void handle_movement(double dt) {
         s->x += vx;
         s->y += vy + dy * ut;
         s->z += vz;
+        float before = dy;
         if (collide(2, &s->x, &s->y, &s->z)) {
+            if (before < -impact) {
+                impact = -before;
+            }
             dy = 0;
         }
     }
-    if (!g->flying && dy == 0) {
+    int under = get_block(roundf(s->x), roundf(s->y) - 2, roundf(s->z));
+    if (impact > 16 && !in_water && under != CHEST) {
+        apply_damage((impact - 16) * 2, "HARD LANDING.");
+    }
+    if (!g->flying && dy == 0 && under == CHEST) {
         // chests are trampolines; standing on one is not an option
-        int nx = roundf(s->x);
-        int ny = roundf(s->y);
-        int nz = roundf(s->z);
-        if (get_block(nx, ny - 2, nz) == CHEST) {
-            static double last_boing = 0;
-            dy = 18;
-            if (glfwGetTime() - last_boing > 3) {
-                last_boing = glfwGetTime();
-                add_message("Boing!");
-            }
+        static double last_boing = 0;
+        dy = 18;
+        if (glfwGetTime() - last_boing > 3) {
+            last_boing = glfwGetTime();
+            add_message("Boing!");
         }
     }
     if (s->y < 0) {
@@ -3349,6 +3489,7 @@ void handle_movement(double dt) {
             s->z = 0;
             force_chunks(g->players);
             add_message("GEOMETRY FAULT. UNIT RECOVERED TO DATUM.");
+            apply_damage(20, "VOID EXPOSURE.");
         }
         s->y = highest_block(s->x, s->z) + 2;
     }
@@ -3485,6 +3626,12 @@ void reset_model() {
     g->order_active = 0;
     g->orders_taken = 0;
     g->boss_hp = 0;
+    g->mining_x = 0;
+    g->mining_y = 0;
+    g->mining_z = 0;
+    g->mining_w = 0;
+    g->mining_progress = 0;
+    g->mining_hardness = 0;
     g->next_pigeon = 0;
     g->next_whisper = 0;
     g->next_depth = 0;
@@ -3719,8 +3866,14 @@ int main(int argc, char **argv) {
             // HANDLE MOVEMENT //
             handle_movement(dt);
 
+            // HANDLE MINING //
+            handle_mining(dt);
+
             // HANDLE MOBS //
             update_mobs(dt);
+
+            // SELF REPAIR //
+            g->integrity = MIN(100, g->integrity + dt * 0.35);
 
             // PARTY MODE AND EXPIRED COFFEE //
             if (g->mode == MODE_OFFLINE) {
@@ -3811,8 +3964,9 @@ int main(int argc, char **argv) {
                     snprintf(status, 128, "NO ACTIVE ORDER");
                 }
                 snprintf(
-                    text_buffer, 1024, "PWR %d | %s | %s%s%s%s",
-                    g->coins, tier_titles[career_tier()], status,
+                    text_buffer, 1024, "PWR %d | INTG %d%% | %s | %s%s%s%s",
+                    g->coins, (int)g->integrity,
+                    tier_titles[career_tier()], status,
                     g->game_time < g->cola_until ? " [COOLANT]" : "",
                     g->game_time < g->meat_until ? " [LOWMASS]" : "",
                     g->game_time < g->stink_until ? " [ODOR]" : "");
@@ -3833,6 +3987,24 @@ int main(int argc, char **argv) {
                 snprintf(text_buffer, 1024, "> %s", g->typing_buffer);
                 render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
                 ty -= ts * 2;
+            }
+            if (SHOW_ITEM) {
+                // stock count beside the held-item preview
+                if (g->rainbow_mode) {
+                    snprintf(text_buffer, 1024, "x**");
+                }
+                else {
+                    snprintf(text_buffer, 1024, "x%d",
+                        g->inventory[items[g->item_index]]);
+                }
+                render_text(&text_attrib, ALIGN_LEFT,
+                    ts * 8, ts * 5, ts, text_buffer);
+            }
+            if (g->mining_progress > 0 && g->mining_hardness >= 0.2) {
+                snprintf(text_buffer, 1024, "%d%%",
+                    (int)(g->mining_progress / g->mining_hardness * 100));
+                render_text(&text_attrib, ALIGN_CENTER,
+                    g->width / 2, g->height / 2 - ts * 4, ts, text_buffer);
             }
             if (g->pad_open && g->has_pad) {
                 char on_line[512] = "ONLINE:";

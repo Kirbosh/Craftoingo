@@ -141,6 +141,9 @@ const int blocks[256][6] = {
     [HR_SKIN] = {80, 80, 82, 83, 81, 84}, // 65 - HR inspector mob
     [TERMINAL] = {72, 72, 72, 72, 85, 72}, // 66 - dead terminal / field pad dock
     [CELL_CRATE] = {86, 86, 86, 86, 86, 86}, // 67 - salvage crate
+    [WATER] = {87, 87, 87, 87, 87, 87}, // 68 - water (dither transparency)
+    [COAL_ORE] = {88, 88, 88, 88, 88, 88}, // 69 - coal seam
+    [IRON_ORE] = {89, 89, 89, 89, 89, 89}, // 70 - ferrous deposit
 };
 
 const int plants[256] = {
@@ -177,6 +180,7 @@ int is_obstacle(int w) {
     }
     switch (w) {
         case EMPTY:
+        case WATER:
             return 0;
         case CLOUD:
             return cloudwalk_mode;
@@ -197,6 +201,7 @@ int is_transparent(int w) {
         case EMPTY:
         case GLASS:
         case LEAVES:
+        case WATER:
             return 1;
         default:
             return 0;
@@ -207,9 +212,72 @@ int is_destructable(int w) {
     switch (w) {
         case EMPTY:
         case CLOUD:
+        case WATER:
         case TERMINAL: // the dead network endures; also holds the field pad
             return 0;
         default:
             return 1;
+    }
+}
+
+// seconds of held punching to break a block
+float block_hardness(int w) {
+    if (is_plant(w)) {
+        return 0;
+    }
+    switch (w) {
+        case LEAVES:
+            return 0.1;
+        case GLASS:
+            return 0.25;
+        case GRASS:
+        case SAND:
+        case DIRT:
+        case GARBAGE:
+        case SLUDGE:
+            return 0.35;
+        case CELL_CRATE:
+            return 0.5;
+        case WOOD:
+        case PLANK:
+        case CHEST:
+            return 0.7;
+        case RUST:
+            return 0.8;
+        case STONE:
+        case BRICK:
+        case COBBLE:
+        case LIGHT_STONE:
+        case GRAVESTONE:
+        case CEMENT:
+        case SNOW:
+            return 0.9;
+        case ASPHALT:
+        case ROAD_LINE:
+            return 1.1;
+        case COAL_ORE:
+        case IRON_ORE:
+            return 1.2;
+        case DARK_STONE:
+            return 1.5;
+        default:
+            return 0.5;
+    }
+}
+
+// what breaking a block puts in the inventory
+int block_drop(int w) {
+    switch (w) {
+        case GRASS:
+            return DIRT;
+        case STONE:
+            return COBBLE;
+        case LEAVES:
+        case COAL_ORE: // ores pay cells instead
+        case IRON_ORE:
+        case WATER:
+            return 0;
+        default:
+            return w;
     }
 }

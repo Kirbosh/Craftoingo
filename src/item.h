@@ -73,6 +73,9 @@
 // world-only blocks: generated, never player-placed
 #define TERMINAL 66
 #define CELL_CRATE 67
+#define WATER 68
+#define COAL_ORE 69
+#define IRON_ORE 70
 
 extern const int items[];
 extern const int item_count;
@@ -86,5 +89,7 @@ int is_plant(int w);
 int is_obstacle(int w);
 int is_transparent(int w);
 int is_destructable(int w);
+float block_hardness(int w);
+int block_drop(int w);
 
 #endif

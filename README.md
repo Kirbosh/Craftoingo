@@ -60,10 +60,34 @@ debris, place materials, collect garbage, clear vegetation, memorial
 upkeep. Completing an order pays cells and raises your level. The backlog
 does not meaningfully shrink. Every other terminal in the world is dead.
 
+#### Survival basics
+
+The base game is much closer to Minecraft than the Craft engine it grew
+from:
+
+* **Real ground** — grass over dirt over deep stone down to unbreakable
+  bedrock, with coal seams and ferrous deposits worth cells, and cave
+  systems worming underneath. Your sensors have opinions about the deep.
+* **Water** — seas fill the low country, with coastlines and swimming
+  (slow, buoyant, safe to land in).
+* **Mining takes time** — hold the punch; every block has a hardness, from
+  instant grass to slow dark stone, with a progress readout. Interactive
+  things (dispensers, crates, terminals, HR-1) still react to a single
+  punch.
+* **Materials are finite** — broken blocks go to a persistent inventory
+  (grass drops dirt, stone drops cobblestone), placing consumes stock, and
+  the HUD shows the count for what you're holding. The aesthetics module
+  (`/rainbow`) is the only fabricator.
+* **Integrity** — the unit has 100% structural integrity and loses it to
+  hard landings, corrosive sludge, void exposure and HR-1 contact. It
+  self-repairs slowly. At 0% the unit fails and reboots at the crossroads,
+  minus a quarter of its cells.
+
 #### Mechanics
 
-* **Cells** — the currency and the point: earned from orders and salvage,
-  spent at dispensers, drained by HR-1. Persisted in `oingo_career.txt`.
+* **Cells** — the currency and the point: earned from orders, salvage and
+  minerals, spent at dispensers, drained by HR-1. Persisted in
+  `oingo_career.txt` along with your inventory and integrity.
 * **Salvage crates** — scattered in ruins, sealed vaults and sky depots;
   breaking one pays 8 cells. Explosions salvage them just as well.
 * **Dispensers** — punch a vending machine to spend 5 cells on a mystery

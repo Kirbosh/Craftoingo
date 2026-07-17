@@ -32,17 +32,67 @@ static unsigned int whash(int a, int b, unsigned int salt) {
     return h ^ (h >> 16);
 }
 
+#define SEA_LEVEL 11
+
 static int terrain_height(int x, int z, int *w) {
     float f = simplex2(x * 0.01, z * 0.01, 4, 0.5, 2);
     float g = simplex2(-x * 0.01, -z * 0.01, 2, 0.9, 2);
     int mh = g * 32 + 16;
     int h = f * mh;
-    *w = 1;
-    if (h <= 12) {
-        h = 12;
-        *w = 2;
+    if (h < 5) {
+        h = 5;
     }
+    *w = h <= SEA_LEVEL + 2 ? 2 : 1;
     return h;
+}
+
+// carve caves through the stone; two noise bands crossing make tunnels
+static int in_cave(int x, int y, int z) {
+    float a = simplex3(x * 0.05, y * 0.09, z * 0.05, 2, 0.6, 2);
+    if (a > 0.80) {
+        return 1; // hollow pocket
+    }
+    float b = simplex3(x * 0.03 + 53, y * 0.06, z * 0.03 - 71, 2, 0.6, 2);
+    float c = simplex3(x * 0.03 - 29, y * 0.06, z * 0.03 + 37, 2, 0.6, 2);
+    return fabsf(b - 0.5f) < 0.045f && fabsf(c - 0.5f) < 0.045f;
+}
+
+// the ground column, bottom to top: bedrock, stone with ore and caves,
+// dirt, then the surface block
+static void gen_column(int x, int h, int z, int top, int flag,
+    world_func func, void *arg)
+{
+    for (int y = 0; y < h; y++) {
+        int block;
+        if (y == 0) {
+            block = DARK_STONE; // bedrock; the y=0 rule keeps it unbreakable
+        }
+        else if (y < h - 4) {
+            if (y >= 3 && y < h - 6 && in_cave(x, y, z)) {
+                continue;
+            }
+            block = STONE;
+            if (simplex3(x * 0.11, y * 0.11, z * 0.11, 2, 0.5, 2) > 0.79) {
+                block = COAL_ORE;
+            }
+            else if (y <= 10 &&
+                simplex3(x * 0.09 + 17, y * 0.09, z * 0.09 - 43,
+                    2, 0.5, 2) > 0.81)
+            {
+                block = IRON_ORE;
+            }
+        }
+        else if (y < h - 1) {
+            block = DIRT;
+        }
+        else {
+            block = top;
+        }
+        func(x, y, z, block * flag, arg);
+    }
+    for (int y = h; y <= SEA_LEVEL; y++) {
+        func(x, y, z, WATER * flag, arg);
+    }
 }
 
 // abandoned OINGO CORP infrastructure: roads run the world grid every
@@ -308,6 +358,10 @@ static void gen_structures(int p, int q, world_func func, void *arg) {
     if (sx * sx + sz * sz > (CRACK_START - 10) * (CRACK_START - 10)) {
         return; // nothing was built out by the cracks
     }
+    int tw0;
+    if (roll < 58 && terrain_height(sx, sz, &tw0) <= SEA_LEVEL + 2) {
+        return; // nothing was built in the water either
+    }
     if (roll < 20) {
         gen_ruin(p, q, sx - 3, sz - 3, seed, func, arg);
     }
@@ -348,11 +402,9 @@ void create_world(int p, int q, world_func func, void *arg) {
             }
             int w;
             int h = terrain_height(x, z, &w);
-            int road = on_road(x, z);
-            // sand and grass terrain
-            for (int y = 0; y < h; y++) {
-                func(x, y, z, w * flag, arg);
-            }
+            int road = on_road(x, z) && h > SEA_LEVEL + 1;
+            // layered terrain: bedrock, stone, dirt, surface, and seas
+            gen_column(x, h, z, w == 2 ? SAND : GRASS, flag, func, arg);
             if (road) {
                 gen_road_column(x, h, z, func, arg);
             }
