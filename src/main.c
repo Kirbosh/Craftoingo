@@ -153,6 +153,7 @@ typedef struct {
     char typing_buffer[MAX_TEXT_LENGTH];
     int message_index;
     char messages[MAX_MESSAGES][MAX_TEXT_LENGTH];
+    double message_times[MAX_MESSAGES];
     int width;
     int height;
     int observe1;
@@ -1899,6 +1900,7 @@ void add_message(const char *text) {
     printf("%s\n", text);
     snprintf(
         g->messages[g->message_index], MAX_TEXT_LENGTH, "%s", text);
+    g->message_times[g->message_index] = g->game_time;
     g->message_index = (g->message_index + 1) % MAX_MESSAGES;
 }
 
@@ -3604,6 +3606,7 @@ void reset_model() {
     memset(g->typing_buffer, 0, sizeof(char) * MAX_TEXT_LENGTH);
     g->typing = 0;
     memset(g->messages, 0, sizeof(char) * MAX_MESSAGES * MAX_TEXT_LENGTH);
+    memset(g->message_times, 0, sizeof(double) * MAX_MESSAGES);
     g->message_index = 0;
     g->day_length = DAY_LENGTH;
     glfwSetTime(g->day_length / 3.0);
@@ -3976,7 +3979,9 @@ int main(int argc, char **argv) {
             if (SHOW_CHAT_TEXT) {
                 for (int i = 0; i < MAX_MESSAGES; i++) {
                     int index = (g->message_index + i) % MAX_MESSAGES;
-                    if (strlen(g->messages[index])) {
+                    if (strlen(g->messages[index]) &&
+                        g->game_time - g->message_times[index] < 15)
+                    {
                         render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts,
                             g->messages[index]);
                         ty -= ts * 2;

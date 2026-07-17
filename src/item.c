@@ -201,7 +201,8 @@ int is_transparent(int w) {
         case EMPTY:
         case GLASS:
         case LEAVES:
-        case WATER:
+        case WATER: // transparent to the mesher so the seabed still renders;
+                    // the tile itself is opaque, so underwater reads as murk
             return 1;
         default:
             return 0;
