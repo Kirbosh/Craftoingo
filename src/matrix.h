@@ -25,4 +25,7 @@ void set_matrix_3d(
     float fov, int ortho, int radius);
 void set_matrix_item(float *matrix, int width, int height, int scale);
 
+void set_matrix_item_at(
+    float *matrix, int width, int height, float px, float py, float size);
+
 #endif

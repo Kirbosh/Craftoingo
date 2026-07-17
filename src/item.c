@@ -282,3 +282,49 @@ int block_drop(int w) {
             return w;
     }
 }
+
+const char *item_name(int w) {
+    switch (w) {
+        case GRASS: return "GRASS";
+        case SAND: return "SAND";
+        case STONE: return "STONE";
+        case BRICK: return "BRICK";
+        case WOOD: return "WOOD";
+        case CEMENT: return "CEMENT";
+        case DIRT: return "DIRT";
+        case PLANK: return "PLANK";
+        case SNOW: return "SNOW";
+        case GLASS: return "GLASS";
+        case COBBLE: return "COBBLE";
+        case LIGHT_STONE: return "LIGHT STONE";
+        case DARK_STONE: return "DARK STONE";
+        case CHEST: return "CHEST";
+        case LEAVES: return "LEAVES";
+        case CLOUD: return "CLOUD";
+        case TALL_GRASS: return "TALL GRASS";
+        case YELLOW_FLOWER: return "YELLOW FLOWER";
+        case RED_FLOWER: return "RED FLOWER";
+        case PURPLE_FLOWER: return "PURPLE FLOWER";
+        case SUN_FLOWER: return "SUN FLOWER";
+        case WHITE_FLOWER: return "WHITE FLOWER";
+        case BLUE_FLOWER: return "BLUE FLOWER";
+        case RUST: return "RUST";
+        case ASPHALT: return "ASPHALT";
+        case ROAD_LINE: return "ROAD LINE";
+        case GARBAGE: return "GARBAGE";
+        case SLUDGE: return "SLUDGE";
+        case GRAVESTONE: return "GRAVESTONE";
+        case VENDING: return "DISPENSER";
+        case CAUTION: return "CAUTION BLOCK";
+        case TERMINAL: return "TERMINAL";
+        case CELL_CRATE: return "SALVAGE CRATE";
+        case WATER: return "WATER";
+        case COAL_ORE: return "COAL SEAM";
+        case IRON_ORE: return "FERROUS DEPOSIT";
+        default:
+            if (w >= COLOR_00 && w <= COLOR_31) {
+                return "COLOR PANEL";
+            }
+            return "MATERIAL";
+    }
+}

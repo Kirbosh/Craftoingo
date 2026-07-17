@@ -91,5 +91,6 @@ int is_transparent(int w);
 int is_destructable(int w);
 float block_hardness(int w);
 int block_drop(int w);
+const char *item_name(int w);
 
 #endif

@@ -75,9 +75,19 @@ from:
   things (dispensers, crates, terminals, HR-1) still react to a single
   punch.
 * **Materials are finite** — broken blocks go to a persistent inventory
-  (grass drops dirt, stone drops cobblestone), placing consumes stock, and
-  the HUD shows the count for what you're holding. The aesthetics module
-  (`/rainbow`) is the only fabricator.
+  (grass drops dirt, stone drops cobblestone), placing consumes stock.
+* **A real hotbar** — nine assignable slots with live block previews,
+  counts and a selection frame. Number keys, scroll wheel and E/R select;
+  middle-click binds whatever you're looking at to the active slot.
+* **Storage screen** — press `I` to browse everything you own and press a
+  number to assign the highlighted material to that hotbar slot.
+* **Fabrication** — the field pad converts materials (`E`/`R` to pick a
+  recipe, `C` to make it): wood into planks, cobble into stone or
+  gravestones, sand into glass, garbage into rust. `/rainbow` remains the
+  only source of color panels.
+* **Air** — the unit is not rated for submersion. A meter appears when you
+  dive; at zero, water ingress begins. Sand also behaves like sand now:
+  undermine a dune and it comes down.
 * **Integrity** — the unit has 100% structural integrity and loses it to
   hard landings, corrosive sludge, void exposure and HR-1 contact. It
   self-repairs slowly. At 0% the unit fails and reboots at the crossroads,

@@ -159,7 +159,12 @@ typedef struct {
     int observe1;
     int observe2;
     int flying;
-    int item_index;
+    int hotbar[9];
+    int hotbar_index;
+    int inv_open;
+    int inv_cursor;
+    int fab_cursor;
+    float air;
     int scale;
     int ortho;
     float fov;
@@ -1859,15 +1864,15 @@ void render_crosshairs(Attrib *attrib) {
     glDisable(GL_COLOR_LOGIC_OP);
 }
 
-void render_item(Attrib *attrib) {
+
+void render_hotbar_item(Attrib *attrib, float px, float py, float size, int w) {
     float matrix[16];
-    set_matrix_item(matrix, g->width, g->height, g->scale);
+    set_matrix_item_at(matrix, g->width, g->height, px, py, size);
     glUseProgram(attrib->program);
     glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
     glUniform3f(attrib->camera, 0, 0, 5);
     glUniform1i(attrib->sampler, 0);
     glUniform1f(attrib->timer, time_of_day());
-    int w = items[g->item_index];
     if (is_plant(w)) {
         GLuint buffer = gen_plant_buffer(0, 0, 0, 0.5, w);
         draw_plant(attrib, buffer);
@@ -1878,6 +1883,54 @@ void render_item(Attrib *attrib) {
         draw_cube(attrib, buffer);
         del_buffer(buffer);
     }
+}
+
+void render_hotbar_frames(Attrib *attrib) {
+    float slot = 44 * g->scale;
+    float x0 = g->width / 2 - slot * 4.5;
+    float cy = 30 * g->scale;
+    float half = slot / 2 - 2 * g->scale;
+    float data[16 * 9];
+    int n = 0;
+    for (int i = 0; i < 9; i++) {
+        float cx = x0 + slot * (i + 0.5);
+        float h = half + (i == g->hotbar_index ? 3 * g->scale : 0);
+        float rect[16] = {
+            cx - h, cy - h, cx + h, cy - h,
+            cx + h, cy - h, cx + h, cy + h,
+            cx + h, cy + h, cx - h, cy + h,
+            cx - h, cy + h, cx - h, cy - h
+        };
+        memcpy(data + n, rect, sizeof(rect));
+        n += 16;
+    }
+    float matrix[16];
+    set_matrix_2d(matrix, g->width, g->height);
+    glUseProgram(attrib->program);
+    glLineWidth(2 * g->scale);
+    glEnable(GL_COLOR_LOGIC_OP);
+    glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
+    GLuint buffer = gen_buffer(sizeof(float) * n, data);
+    draw_lines(attrib, buffer, 2, n / 2);
+    del_buffer(buffer);
+    glDisable(GL_COLOR_LOGIC_OP);
+}
+
+void render_hud_bar(Attrib *attrib, float x, float y, float len, float width) {
+    if (len < 1) {
+        len = 1;
+    }
+    float data[4] = {x, y, x + len, y};
+    float matrix[16];
+    set_matrix_2d(matrix, g->width, g->height);
+    glUseProgram(attrib->program);
+    glLineWidth(width);
+    glEnable(GL_COLOR_LOGIC_OP);
+    glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
+    GLuint buffer = gen_buffer(sizeof(data), data);
+    draw_lines(attrib, buffer, 2, 2);
+    del_buffer(buffer);
+    glDisable(GL_COLOR_LOGIC_OP);
 }
 
 void render_text(
@@ -1905,12 +1958,18 @@ void add_message(const char *text) {
 }
 
 void load_career() {
+    static const int default_hotbar[9] = {
+        DIRT, COBBLE, PLANK, SAND, STONE, WOOD, GLASS, BRICK, GRAVESTONE
+    };
     g->coins = 10;
     g->level = 0;
     g->admin_defeated = 0;
     g->has_pad = 0;
     g->integrity = 100;
     memset(g->inventory, 0, sizeof(g->inventory));
+    for (int i = 0; i < 9; i++) {
+        g->hotbar[i] = default_hotbar[i];
+    }
     FILE *file = fopen(CAREER_PATH, "r");
     if (file) {
         if (fscanf(file, "%d %d %d %d", &g->coins, &g->level,
@@ -1925,7 +1984,13 @@ void load_career() {
         }
         int id, count;
         while (fscanf(file, "%d %d", &id, &count) == 2) {
-            if (id > 0 && id < 256 && count > 0) {
+            if (id >= 1000 && id < 1009) {
+                // hotbar assignments ride in the same pair stream
+                if (count > 0 && count < 256) {
+                    g->hotbar[id - 1000] = count;
+                }
+            }
+            else if (id > 0 && id < 256 && count > 0) {
                 g->inventory[id] = count;
             }
         }
@@ -1938,6 +2003,9 @@ void save_career() {
     if (file) {
         fprintf(file, "%d %d %d %d %d\n", g->coins, g->level,
             g->admin_defeated, g->has_pad, (int)g->integrity);
+        for (int i = 0; i < 9; i++) {
+            fprintf(file, "%d %d\n", 1000 + i, g->hotbar[i]);
+        }
         for (int i = 1; i < 256; i++) {
             if (g->inventory[i] > 0) {
                 fprintf(file, "%d %d\n", i, g->inventory[i]);
@@ -1945,6 +2013,21 @@ void save_career() {
         }
         fclose(file);
     }
+}
+
+int held_item() {
+    return g->hotbar[g->hotbar_index];
+}
+
+// placeable materials currently in stock, in item-list order
+int owned_items(int *out, int max) {
+    int n = 0;
+    for (int i = 0; i < item_count && n < max; i++) {
+        if (g->inventory[items[i]] > 0) {
+            out[n++] = items[i];
+        }
+    }
+    return n;
 }
 
 void apply_damage(float amount, const char *source) {
@@ -2161,6 +2244,40 @@ void vend() {
         add_message("FAULT: OVERPAYMENT. +25 CELLS.");
     }
     save_career();
+}
+
+typedef struct {
+    int in_w;
+    int in_n;
+    int out_w;
+    int out_n;
+} Recipe;
+
+static const Recipe recipes[] = {
+    {WOOD, 1, PLANK, 4},
+    {COBBLE, 4, STONE, 1},
+    {SAND, 4, GLASS, 1},
+    {COBBLE, 2, GRAVESTONE, 1},
+    {GARBAGE, 4, RUST, 1},
+};
+
+#define RECIPE_COUNT ((int)(sizeof(recipes) / sizeof(recipes[0])))
+
+void fabricate() {
+    char text[MAX_TEXT_LENGTH];
+    const Recipe *r = recipes + g->fab_cursor;
+    if (g->inventory[r->in_w] < r->in_n) {
+        snprintf(text, MAX_TEXT_LENGTH, "FABRICATE: NEED %d %s.",
+            r->in_n, item_name(r->in_w));
+        add_message(text);
+        return;
+    }
+    g->inventory[r->in_w] -= r->in_n;
+    g->inventory[r->out_w] += r->out_n;
+    save_career();
+    snprintf(text, MAX_TEXT_LENGTH, "FABRICATED: %d %s.",
+        r->out_n, item_name(r->out_w));
+    add_message(text);
 }
 
 int count_mobs(int type) {
@@ -2637,7 +2754,7 @@ void parse_command(const char *buffer, int forward) {
     }
     else if (strcmp(buffer, "/help") == 0) {
         add_message("-- SELF TEST --");
-        add_message("HOLD PUNCH TO MINE. MATERIALS ARE FINITE. PAD: Q.");
+        add_message("MINE: HOLD PUNCH. PAD: Q. STORAGE: I. FABRICATE: PAD+C.");
         add_message("ORDERS PAY CELLS. CRATES +8. ORES PAY. WATCH INTEGRITY.");
         add_message("MODULES: /zoomies 1 /rainbow 2 /party 3 /moon 4");
         add_message("/boom 5 /cloudwalk 8. FREE: /pigeon /joke /sethome");
@@ -2868,9 +2985,30 @@ void on_light() {
     }
 }
 
+// sand has no patience for overhangs
+void settle_sand(int x, int y, int z) {
+    int above = y + 1;
+    while (get_block(x, above, z) == SAND) {
+        int landing = above - 1;
+        while (landing > 1) {
+            int below = get_block(x, landing - 1, z);
+            if (below == 0 || below == WATER) {
+                landing--;
+            }
+            else {
+                break;
+            }
+        }
+        set_block(x, above, z, 0);
+        set_block(x, landing, z, SAND);
+        above++;
+    }
+}
+
 void break_block(int hx, int hy, int hz, int hw) {
     set_block(hx, hy, hz, 0);
     record_block(hx, hy, hz, 0);
+    settle_sand(hx, hy, hz);
     int drop = block_drop(hw);
     if (drop > 0 && drop < 256) {
         g->inventory[drop]++;
@@ -3034,7 +3172,7 @@ void on_left_click() {
 
 // Minecraft-style held mining: hardness in seconds, progress per target
 void handle_mining(double dt) {
-    if (g->typing || g->pad_open || g->boom_mode) {
+    if (g->typing || g->pad_open || g->inv_open || g->boom_mode) {
         g->mining_progress = 0;
         return;
     }
@@ -3080,7 +3218,7 @@ void on_right_click() {
     int hw = hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_obstacle(hw)) {
         if (!player_intersects_block(2, s->x, s->y, s->z, hx, hy, hz)) {
-            int w = items[g->item_index];
+            int w = held_item();
             if (g->rainbow_mode) {
                 // the aesthetics module fabricates; everything else is finite
                 w = COLOR_00 + g->rainbow_index;
@@ -3104,12 +3242,14 @@ void on_right_click() {
 }
 
 void on_middle_click() {
+    // pick block: bind whatever you're looking at to the active slot
     State *s = &g->players->state;
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     for (int i = 0; i < item_count; i++) {
         if (items[i] == hw) {
-            g->item_index = i;
+            g->hotbar[g->hotbar_index] = hw;
+            save_career();
             break;
         }
     }
@@ -3179,6 +3319,9 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
                 add_message(text);
             }
         }
+        else if (g->inv_open) {
+            // storage browses with E/R and binds with 1-9
+        }
         else {
             if (control) {
                 on_right_click();
@@ -3202,23 +3345,58 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
     if (!g->typing) {
         if (key == CRAFT_KEY_PAD && g->has_pad) {
             g->pad_open = !g->pad_open;
+            g->inv_open = 0;
+        }
+        if (key == 'I') {
+            g->inv_open = !g->inv_open;
+            g->pad_open = 0;
+        }
+        if (key == 'C' && g->pad_open && g->has_pad) {
+            fabricate();
         }
         if (key == CRAFT_KEY_FLY) {
             g->flying = !g->flying;
         }
         if (key >= '1' && key <= '9') {
-            g->item_index = key - '1';
-        }
-        if (key == '0') {
-            g->item_index = 9;
+            int slot = key - '1';
+            if (g->inv_open) {
+                int list[256];
+                int n = owned_items(list, 256);
+                if (n > 0) {
+                    char text[MAX_TEXT_LENGTH];
+                    int w = list[MIN(g->inv_cursor, n - 1)];
+                    g->hotbar[slot] = w;
+                    save_career();
+                    snprintf(text, MAX_TEXT_LENGTH,
+                        "SLOT %d: %s.", slot + 1, item_name(w));
+                    add_message(text);
+                }
+            }
+            else {
+                g->hotbar_index = slot;
+            }
         }
         if (key == CRAFT_KEY_ITEM_NEXT) {
-            g->item_index = (g->item_index + 1) % item_count;
+            if (g->inv_open) {
+                g->inv_cursor++;
+            }
+            else if (g->pad_open) {
+                g->fab_cursor = (g->fab_cursor + 1) % RECIPE_COUNT;
+            }
+            else {
+                g->hotbar_index = (g->hotbar_index + 1) % 9;
+            }
         }
         if (key == CRAFT_KEY_ITEM_PREV) {
-            g->item_index--;
-            if (g->item_index < 0) {
-                g->item_index = item_count - 1;
+            if (g->inv_open) {
+                g->inv_cursor--;
+            }
+            else if (g->pad_open) {
+                g->fab_cursor = (g->fab_cursor + RECIPE_COUNT - 1)
+                    % RECIPE_COUNT;
+            }
+            else {
+                g->hotbar_index = (g->hotbar_index + 8) % 9;
             }
         }
         if (key == CRAFT_KEY_OBSERVE) {
@@ -3267,13 +3445,20 @@ void on_scroll(GLFWwindow *window, double xdelta, double ydelta) {
     static double ypos = 0;
     ypos += ydelta;
     if (ypos < -SCROLL_THRESHOLD) {
-        g->item_index = (g->item_index + 1) % item_count;
+        if (g->inv_open) {
+            g->inv_cursor++;
+        }
+        else {
+            g->hotbar_index = (g->hotbar_index + 1) % 9;
+        }
         ypos = 0;
     }
     if (ypos > SCROLL_THRESHOLD) {
-        g->item_index--;
-        if (g->item_index < 0) {
-            g->item_index = item_count - 1;
+        if (g->inv_open) {
+            g->inv_cursor--;
+        }
+        else {
+            g->hotbar_index = (g->hotbar_index + 8) % 9;
         }
         ypos = 0;
     }
@@ -3401,9 +3586,27 @@ void handle_movement(double dt) {
     }
     float vx, vy, vz;
     get_motion_vector(g->flying, sz, sx, s->rx, s->ry, &vx, &vy, &vz);
-    int in_water =
-        get_block(roundf(s->x), roundf(s->y), roundf(s->z)) == WATER ||
+    int submerged =
+        get_block(roundf(s->x), roundf(s->y), roundf(s->z)) == WATER;
+    int in_water = submerged ||
         get_block(roundf(s->x), roundf(s->y) - 1, roundf(s->z)) == WATER;
+    if (submerged && !g->flying) {
+        g->air -= dt * 8;
+        if (g->air <= 0) {
+            g->air = 0;
+            static double last_ingress = 0;
+            if (g->game_time - last_ingress > 6 ||
+                last_ingress > g->game_time)
+            {
+                last_ingress = g->game_time;
+                add_message("WATER INGRESS. SEEK SURFACE.");
+            }
+            apply_damage(dt * 5, "WATER INGRESS.");
+        }
+    }
+    else {
+        g->air = MIN(100, g->air + dt * 40);
+    }
     if (!g->typing) {
         if (glfwGetKey(g->window, CRAFT_KEY_JUMP)) {
             if (g->flying) {
@@ -3602,7 +3805,11 @@ void reset_model() {
     g->observe1 = 0;
     g->observe2 = 0;
     g->flying = 0;
-    g->item_index = 0;
+    g->hotbar_index = 0;
+    g->inv_open = 0;
+    g->inv_cursor = 0;
+    g->fab_cursor = 0;
+    g->air = 100;
     memset(g->typing_buffer, 0, sizeof(char) * MAX_TEXT_LENGTH);
     g->typing = 0;
     memset(g->messages, 0, sizeof(char) * MAX_MESSAGES * MAX_TEXT_LENGTH);
@@ -3934,7 +4141,21 @@ int main(int argc, char **argv) {
                 render_crosshairs(&line_attrib);
             }
             if (SHOW_ITEM) {
-                render_item(&block_attrib);
+                float slot = 44 * g->scale;
+                float hx0 = g->width / 2 - slot * 4.5f;
+                float hcy = 30 * g->scale;
+                for (int i = 0; i < 9; i++) {
+                    render_hotbar_item(&block_attrib,
+                        hx0 + slot * (i + 0.5f), hcy, 30 * g->scale,
+                        g->hotbar[i]);
+                }
+                render_hotbar_frames(&line_attrib);
+                render_hud_bar(&line_attrib, hx0, hcy + slot * 0.78f,
+                    slot * 9 * g->integrity / 100, 6 * g->scale);
+                if (g->air < 99) {
+                    render_hud_bar(&line_attrib, hx0, hcy + slot * 1.0f,
+                        slot * 9 * g->air / 100, 4 * g->scale);
+                }
             }
 
             // RENDER TEXT //
@@ -3994,16 +4215,23 @@ int main(int argc, char **argv) {
                 ty -= ts * 2;
             }
             if (SHOW_ITEM) {
-                // stock count beside the held-item preview
-                if (g->rainbow_mode) {
-                    snprintf(text_buffer, 1024, "x**");
+                float slot = 44 * g->scale;
+                float hx0 = g->width / 2 - slot * 4.5f;
+                float hcy = 30 * g->scale;
+                for (int i = 0; i < 9; i++) {
+                    int have = g->inventory[g->hotbar[i]];
+                    if (have > 0) {
+                        snprintf(text_buffer, 1024, "%d", MIN(have, 999));
+                        render_text(&text_attrib, ALIGN_CENTER,
+                            hx0 + slot * (i + 0.5f) + slot * 0.24f,
+                            hcy + slot * 0.26f, 8 * g->scale, text_buffer);
+                    }
                 }
-                else {
-                    snprintf(text_buffer, 1024, "x%d",
-                        g->inventory[items[g->item_index]]);
-                }
-                render_text(&text_attrib, ALIGN_LEFT,
-                    ts * 8, ts * 5, ts, text_buffer);
+                snprintf(text_buffer, 1024, "%s%s",
+                    item_name(held_item()),
+                    g->rainbow_mode ? " [FABRICATING COLOR]" : "");
+                render_text(&text_attrib, ALIGN_CENTER,
+                    g->width / 2, hcy + slot * 1.35f, ts, text_buffer);
             }
             if (g->mining_progress > 0 && g->mining_hardness >= 0.2) {
                 snprintf(text_buffer, 1024, "%d%%",
@@ -4056,8 +4284,51 @@ int main(int argc, char **argv) {
                 py -= ts * 2;
                 render_text(&text_attrib, ALIGN_LEFT, tx, py, ts, off_line);
                 py -= ts * 2;
+                {
+                    const Recipe *r = recipes + g->fab_cursor;
+                    snprintf(text_buffer, 1024,
+                        "FAB [E/R, C]: %d %s -> %d %s (HAVE %d)",
+                        r->in_n, item_name(r->in_w),
+                        r->out_n, item_name(r->out_w),
+                        g->inventory[r->in_w]);
+                    render_text(&text_attrib, ALIGN_LEFT, tx, py, ts,
+                        text_buffer);
+                    py -= ts * 2;
+                }
                 render_text(&text_attrib, ALIGN_LEFT, tx, py, ts,
                     "[Q] CLOSE");
+            }
+            if (g->inv_open) {
+                int list[256];
+                int n = owned_items(list, 256);
+                if (n > 0) {
+                    g->inv_cursor = ((g->inv_cursor % n) + n) % n;
+                }
+                else {
+                    g->inv_cursor = 0;
+                }
+                float ix = g->width * 0.62f;
+                float iy = g->height - ts * 4;
+                render_text(&text_attrib, ALIGN_LEFT, ix, iy, ts,
+                    "== STORAGE ==");
+                iy -= ts * 2;
+                render_text(&text_attrib, ALIGN_LEFT, ix, iy, ts,
+                    "[E/R] [1-9 ASSIGN] [I] CLOSE");
+                iy -= ts * 2;
+                if (n == 0) {
+                    render_text(&text_attrib, ALIGN_LEFT, ix, iy, ts,
+                        "NOTHING SALVAGED YET.");
+                }
+                int start = MAX(0, g->inv_cursor - 5);
+                int end = MIN(n, start + 12);
+                for (int k = start; k < end; k++) {
+                    snprintf(text_buffer, 1024, "%c %s %d",
+                        k == g->inv_cursor ? '>' : ' ',
+                        item_name(list[k]), g->inventory[list[k]]);
+                    render_text(&text_attrib, ALIGN_LEFT, ix, iy, ts,
+                        text_buffer);
+                    iy -= ts * 2;
+                }
             }
             if (SHOW_PLAYER_NAMES) {
                 if (player != me) {

@@ -257,3 +257,25 @@ void set_matrix_item(float *matrix, int width, int height, int scale) {
     mat_identity(matrix);
     mat_multiply(matrix, a, matrix);
 }
+
+void set_matrix_item_at(
+    float *matrix, int width, int height, float px, float py, float size)
+{
+    float a[16];
+    float b[16];
+    float aspect = (float)width / height;
+    float box = height / size / 2;
+    float xoffset = px / width * 2 - 1;
+    float yoffset = py / height * 2 - 1;
+    mat_identity(a);
+    mat_rotate(b, 0, 1, 0, -PI / 4);
+    mat_multiply(a, b, a);
+    mat_rotate(b, 1, 0, 0, -PI / 10);
+    mat_multiply(a, b, a);
+    mat_ortho(b, -box * aspect, box * aspect, -box, box, -1, 1);
+    mat_multiply(a, b, a);
+    mat_translate(b, xoffset, yoffset, 0);
+    mat_multiply(a, b, a);
+    mat_identity(matrix);
+    mat_multiply(matrix, a, matrix);
+}
