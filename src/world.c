@@ -89,8 +89,8 @@ static void gen_admin_depot(world_func func, void *arg) {
     for (int x = 100; x <= 112; x++) {
         for (int z = 8; z <= 20; z++) {
             int h = terrain_height(x, z, &tw);
-            // grade the site flat: carve the hill, fill the hollow
-            for (int y = base; y < h + 5 && y < 64; y++) {
+            // grade the site flat: carve the hill (and any tree) down
+            for (int y = base; y < h + 9 && y < 64; y++) {
                 func(x, y, z, 0, arg);
             }
             for (int y = h; y < base; y++) {

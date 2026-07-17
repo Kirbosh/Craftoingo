@@ -2785,7 +2785,6 @@ int explode(int cx, int cy, int cz, int radius) {
                         crates++;
                     }
                     set_block(x, y, z, 0);
-                    record_block(x, y, z, 0);
                 }
             }
         }
@@ -3047,6 +3046,13 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
         else if (g->pad_open && g->has_pad) {
             if (!g->order_active) {
                 accept_order();
+            }
+            else {
+                char text[MAX_TEXT_LENGTH];
+                snprintf(text, MAX_TEXT_LENGTH,
+                    "ORD %04d IN PROGRESS: %d/%d.",
+                    g->order_id, g->quota_progress, g->quota_target);
+                add_message(text);
             }
         }
         else {

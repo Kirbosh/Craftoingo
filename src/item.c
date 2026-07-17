@@ -207,6 +207,7 @@ int is_destructable(int w) {
     switch (w) {
         case EMPTY:
         case CLOUD:
+        case TERMINAL: // the dead network endures; also holds the field pad
             return 0;
         default:
             return 1;
