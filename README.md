@@ -1,6 +1,6 @@
 ## Craftoingo
 
-A Minecraft-inspired silly sandbox for Windows, Mac OS X and Linux, built on
+A Minecraft-inspired survival sandbox for Windows, Mac OS X and Linux, built on
 [Craft](https://github.com/fogleman/Craft) by Michael Fogleman — just a few
 thousand lines of C using modern OpenGL (shaders). Online multiplayer support
 is included using a Python-based server.
@@ -39,7 +39,7 @@ everything else.
 
 * **Pigeons** — the ones who woke you. They wander the roads, flee when
   you get too close (much further if you smell like sludge), and
-  occasionally erupt from disturbed graves. `/pigeon` requisitions one.
+  occasionally erupt from disturbed graves.
 * **HR-1** — a single unit, dormant at its desk in the admin depot down
   the east road. Its head tracks you if you get close. Wake it — by touch
   or by punch — and it begins asset recovery: it glides through terrain
@@ -83,7 +83,7 @@ from:
   number to assign the highlighted material to that hotbar slot.
 * **Fabrication** — the field pad converts materials (`E`/`R` to pick a
   recipe, `C` to make it): wood into planks, cobble into stone or
-  gravestones, sand into glass, garbage into rust. `/rainbow` remains the
+  gravestones, sand into glass, garbage into rust. the `/color` module is the
   only source of color panels.
 * **Air** — the unit is not rated for submersion. A meter appears when you
   dive; at zero, water ingress begins. Sand also behaves like sand now:
@@ -108,8 +108,6 @@ from:
   exist. Destroying company property is fined instantly.
 * **Sludge** — standing on it slows you down and marks you; the pigeons
   will know.
-* **Trampoline chests** — chests are spring-loaded and cannot be stood on.
-  Ruins sometimes contain one. Sorry in advance.
 
 #### Modules and where they take you
 
