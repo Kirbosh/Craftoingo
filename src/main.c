@@ -181,10 +181,10 @@ typedef struct {
     int moon_gravity;
     int rainbow_mode;
     int rainbow_index;
-    int party_mode;
     float boost_dy;
-    int has_home;
-    State home;
+    int modules;
+    int pending_module;
+    double pending_until;
     double game_time;
     int coins;
     int level;
@@ -1966,6 +1966,7 @@ void load_career() {
     g->admin_defeated = 0;
     g->has_pad = 0;
     g->integrity = 100;
+    g->modules = 0;
     memset(g->inventory, 0, sizeof(g->inventory));
     for (int i = 0; i < 9; i++) {
         g->hotbar[i] = default_hotbar[i];
@@ -1982,6 +1983,7 @@ void load_career() {
         if (fscanf(file, "%d", &integrity) == 1) {
             g->integrity = MAX(1, MIN(100, integrity));
         }
+        fscanf(file, "%d", &g->modules);
         int id, count;
         while (fscanf(file, "%d %d", &id, &count) == 2) {
             if (id >= 1000 && id < 1009) {
@@ -2001,8 +2003,8 @@ void load_career() {
 void save_career() {
     FILE *file = fopen(CAREER_PATH, "w");
     if (file) {
-        fprintf(file, "%d %d %d %d %d\n", g->coins, g->level,
-            g->admin_defeated, g->has_pad, (int)g->integrity);
+        fprintf(file, "%d %d %d %d %d %d\n", g->coins, g->level,
+            g->admin_defeated, g->has_pad, (int)g->integrity, g->modules);
         for (int i = 0; i < 9; i++) {
             fprintf(file, "%d %d\n", 1000 + i, g->hotbar[i]);
         }
@@ -2086,16 +2088,16 @@ static const char *tier_titles[4] = {
 typedef struct {
     const char *command;
     const char *name;
-    int level;
+    int cost;
 } Clearance;
 
+// damaged subsystems, restored by spending cells on yourself
 static const Clearance clearances[] = {
-    {"/zoomies", "FIELD MOBILITY", 1},
-    {"/rainbow", "AESTHETICS LICENSE", 2},
-    {"/party", "MORALE AUTHORITY", 3},
-    {"/moon", "GRAVITY WAIVER", 4},
-    {"/boom", "DEMOLITION CLEARANCE", 5},
-    {"/cloudwalk", "SKY ACCESS", 8},
+    {"/overdrive", "DRIVE OVERCLOCK", 30},
+    {"/color", "COLOR FABRICATION", 50},
+    {"/lowmass", "MASS COMPENSATOR", 80},
+    {"/demolition", "DEMOLITION RIG", 120},
+    {"/cloudwalk", "SKY TREADS", 200},
 };
 
 #define CLEARANCE_COUNT ((int)(sizeof(clearances) / sizeof(clearances[0])))
@@ -2108,13 +2110,32 @@ int has_clearance(const char *command) {
         if (strcmp(clearances[i].command, command) != 0) {
             continue;
         }
-        if (g->level >= clearances[i].level) {
+        if (g->modules & (1 << i)) {
             return 1;
         }
         char text[MAX_TEXT_LENGTH];
+        if (g->pending_module == i && g->game_time < g->pending_until) {
+            g->pending_module = -1;
+            if (g->coins < clearances[i].cost) {
+                snprintf(text, MAX_TEXT_LENGTH,
+                    "CELLS INSUFFICIENT: %d REQUIRED.",
+                    clearances[i].cost);
+                add_message(text);
+                return 0;
+            }
+            g->coins -= clearances[i].cost;
+            g->modules |= 1 << i;
+            save_career();
+            snprintf(text, MAX_TEXT_LENGTH,
+                "MODULE RESTORED: %s.", clearances[i].name);
+            add_message(text);
+            return 1;
+        }
+        g->pending_module = i;
+        g->pending_until = g->game_time + 12;
         snprintf(text, MAX_TEXT_LENGTH,
-            "MODULE OFFLINE: %s. RESTORE AT LEVEL %d.",
-            clearances[i].name, clearances[i].level);
+            "MODULE OFFLINE: %s. RESTORE: %d CELLS. REPEAT TO CONFIRM.",
+            clearances[i].name, clearances[i].cost);
         add_message(text);
         return 0;
     }
@@ -2189,14 +2210,6 @@ void quota_credit(int type) {
             snprintf(text, MAX_TEXT_LENGTH,
                 "UNIT CLASS UPDATED: %s.", tier_titles[career_tier()]);
             add_message(text);
-        }
-        for (int i = 0; i < CLEARANCE_COUNT; i++) {
-            if (clearances[i].level == g->level) {
-                snprintf(text, MAX_TEXT_LENGTH,
-                    "MODULE RESTORED: %s (%s).",
-                    clearances[i].name, clearances[i].command);
-                add_message(text);
-            }
         }
     }
 }
@@ -2704,7 +2717,7 @@ void parse_command(const char *buffer, int forward) {
     char server_addr[MAX_ADDR_LENGTH];
     int server_port = DEFAULT_PORT;
     char filename[MAX_PATH_LENGTH];
-    int radius, count, xc, yc, zc, hour;
+    int radius, count, xc, yc, zc;
     if (sscanf(buffer, "/identity %128s %128s", username, token) == 2) {
         db_auth_set(username, token);
         add_message("Successfully imported identity token!");
@@ -2755,131 +2768,42 @@ void parse_command(const char *buffer, int forward) {
     else if (strcmp(buffer, "/help") == 0) {
         add_message("-- SELF TEST --");
         add_message("MINE: HOLD PUNCH. PAD: Q. STORAGE: I. FABRICATE: PAD+C.");
-        add_message("ORDERS PAY CELLS. CRATES +8. ORES PAY. WATCH INTEGRITY.");
-        add_message("MODULES: /zoomies 1 /rainbow 2 /party 3 /moon 4");
-        add_message("/boom 5 /cloudwalk 8. FREE: /pigeon /joke /sethome");
-        add_message("/home /day /night /time H");
+        add_message("ORDERS AND SALVAGE PAY CELLS. CELLS RESTORE MODULES.");
+        add_message("MODULES: /overdrive /color /lowmass /demolition /cloudwalk");
     }
-    else if (strcmp(buffer, "/boom") == 0) {
-        if (has_clearance("/boom")) {
+    else if (strcmp(buffer, "/demolition") == 0) {
+        if (has_clearance("/demolition")) {
             g->boom_mode = !g->boom_mode;
             add_message(g->boom_mode ?
-                "Boom mode ON. Punch responsibly." :
-                "Boom mode OFF. The landscape thanks you.");
+                "DEMOLITION RIG ARMED." : "DEMOLITION RIG SAFED.");
         }
     }
-    else if (strcmp(buffer, "/party") == 0) {
-        if (has_clearance("/party")) {
-            g->party_mode = !g->party_mode;
-            add_message(g->party_mode ?
-                "PARTY MODE! The sun is the DJ now." :
-                "Party's over. The sun sobers up.");
-        }
-    }
-    else if (strcmp(buffer, "/moon") == 0) {
-        if (has_clearance("/moon")) {
+    else if (strcmp(buffer, "/lowmass") == 0) {
+        if (has_clearance("/lowmass")) {
             g->moon_gravity = !g->moon_gravity;
             add_message(g->moon_gravity ?
-                "Moon gravity ON. One small step..." :
-                "Moon gravity OFF. Welcome back to Earth.");
+                "MASS COMPENSATOR ACTIVE." : "MASS COMPENSATOR IDLE.");
         }
     }
-    else if (strcmp(buffer, "/zoomies") == 0) {
-        if (has_clearance("/zoomies")) {
+    else if (strcmp(buffer, "/overdrive") == 0) {
+        if (has_clearance("/overdrive")) {
             g->zoomies = !g->zoomies;
             add_message(g->zoomies ?
-                "ZOOMIES! Gotta go fast." :
-                "Zoomies off. Walking like a person again.");
+                "DRIVE OVERCLOCK ACTIVE." : "DRIVE OVERCLOCK IDLE.");
         }
     }
-    else if (strcmp(buffer, "/rainbow") == 0) {
-        if (has_clearance("/rainbow")) {
+    else if (strcmp(buffer, "/color") == 0) {
+        if (has_clearance("/color")) {
             g->rainbow_mode = !g->rainbow_mode;
             add_message(g->rainbow_mode ?
-                "Rainbow mode ON. Every block a surprise." :
-                "Rainbow mode OFF. Back to picking colors yourself.");
+                "COLOR FABRICATION ACTIVE." : "COLOR FABRICATION IDLE.");
         }
     }
     else if (strcmp(buffer, "/cloudwalk") == 0) {
         if (has_clearance("/cloudwalk")) {
             cloudwalk_mode = !cloudwalk_mode;
             add_message(cloudwalk_mode ?
-                "Cloudwalking ON. The sky is a floor now." :
-                "Cloudwalking OFF. Clouds are a lie again.");
-        }
-    }
-    else if (strcmp(buffer, "/pigeon") == 0) {
-        State *s = &g->players->state;
-        float vx, vy, vz;
-        get_sight_vector(s->rx, 0, &vx, &vy, &vz);
-        if (spawn_mob(MOB_PIGEON,
-            roundf(s->x + vx * 4), s->y, roundf(s->z + vz * 4)))
-        {
-            add_message("REQUESTED: 1 BIRD. DELIVERED: 1 BIRD.");
-        }
-    }
-    else if (strcmp(buffer, "/joke") == 0) {
-        static const char *jokes[][2] = {
-            {"Why did the player dump the chest?",
-             "It kept springing surprises on them."},
-            {"What's a block's favorite music?",
-             "Rock. Obviously."},
-            {"I'd tell you a TNT joke...",
-             "...but it would bomb. (try /boom)"},
-            {"What do you call a sad glass block?",
-             "A pane in the neck."},
-            {"How do trees get online?",
-             "They log in."},
-            {"Why don't clouds ever apologize?",
-             "They let it blow over. (/cloudwalk to confront them)"},
-            {"Why did the dirt block feel safe?",
-             "It was surrounded by groundies."},
-            {"What did the moon say to the jumper?",
-             "You mean the world to me. (/moon)"},
-        };
-        int joke_count = sizeof(jokes) / sizeof(jokes[0]);
-        int i = rand() % joke_count;
-        add_message(jokes[i][0]);
-        add_message(jokes[i][1]);
-    }
-    else if (strcmp(buffer, "/day") == 0) {
-        glfwSetTime(g->day_length * 0.3);
-        g->time_changed = 1;
-        add_message("Rise and shine!");
-    }
-    else if (strcmp(buffer, "/night") == 0) {
-        glfwSetTime(g->day_length * 0.98);
-        g->time_changed = 1;
-        add_message("Lights out!");
-    }
-    else if (sscanf(buffer, "/time %d", &hour) == 1) {
-        if (hour >= 0 && hour <= 24) {
-            glfwSetTime(g->day_length * (hour / 24.0));
-            g->time_changed = 1;
-            add_message("Time is a construct anyway.");
-        }
-        else {
-            add_message("Pick an hour between 0 and 24.");
-        }
-    }
-    else if (strcmp(buffer, "/sethome") == 0) {
-        g->home = g->players->state;
-        g->has_home = 1;
-        add_message("Home set. /home teleports you back.");
-    }
-    else if (strcmp(buffer, "/home") == 0) {
-        if (g->has_home) {
-            State *s = &g->players->state;
-            s->x = g->home.x;
-            s->y = g->home.y;
-            s->z = g->home.z;
-            s->rx = g->home.rx;
-            s->ry = g->home.ry;
-            force_chunks(g->players);
-            add_message("There's no place like /home.");
-        }
-        else {
-            add_message("No home set. Use /sethome first.");
+                "SKY TREADS ACTIVE." : "SKY TREADS IDLE.");
         }
     }
     else if (strcmp(buffer, "/copy") == 0) {
@@ -3140,14 +3064,6 @@ void on_left_click() {
         return;
     }
     if (hy > 0 && hy < 256 && is_destructable(hw) && g->boom_mode) {
-        static const char *boom_lines[] = {
-            "KABOOM!",
-            "Boom goes the dynamite.",
-            "That block had a family!",
-            "Physics has left the chat.",
-            "Ka-blammo!",
-        };
-        int boom_count = sizeof(boom_lines) / sizeof(boom_lines[0]);
         int vandalism = explode(hx, hy, hz, 3);
         float d = sqrtf(
             powf(hx - s->x, 2) +
@@ -3156,7 +3072,7 @@ void on_left_click() {
         if (d < 6) {
             g->boost_dy = 16;
         }
-        add_message(boom_lines[rand() % boom_count]);
+        add_message("DETONATION.");
         if (vandalism) {
             char text[MAX_TEXT_LENGTH];
             int fine = MIN(g->coins, 15);
@@ -3502,19 +3418,6 @@ void on_mouse_button(GLFWwindow *window, int button, int action, int mods) {
 }
 
 void create_window() {
-    static const char *titles[] = {
-        "Craftoingo",
-        "Craftoingo: now with 100% more oingo",
-        "Craftoingo: definitely not Minecraft",
-        "Craftoingo: punching nature since 2013",
-        "Craftoingo: gravity sold separately",
-        "Craftoingo: certified chest trampoline range",
-        "Craftoingo: it's pronounced craft-OINGO",
-        "Craftoingo: 100% artisanal hand-punched cubes",
-        "Craftoingo: do not taste the clouds",
-        "Craftoingo: the blocks are watching",
-    };
-    int title_count = sizeof(titles) / sizeof(titles[0]);
     int window_width = WINDOW_WIDTH;
     int window_height = WINDOW_HEIGHT;
     GLFWmonitor *monitor = NULL;
@@ -3526,8 +3429,7 @@ void create_window() {
         window_height = modes[mode_count - 1].height;
     }
     g->window = glfwCreateWindow(
-        window_width, window_height, titles[rand() % title_count],
-        monitor, NULL);
+        window_width, window_height, "CRAFTOINGO", monitor, NULL);
 }
 
 void handle_mouse_input() {
@@ -3674,18 +3576,8 @@ void handle_movement(double dt) {
             dy = 0;
         }
     }
-    int under = get_block(roundf(s->x), roundf(s->y) - 2, roundf(s->z));
-    if (impact > 16 && !in_water && under != CHEST) {
+    if (impact > 16 && !in_water) {
         apply_damage((impact - 16) * 2, "HARD LANDING.");
-    }
-    if (!g->flying && dy == 0 && under == CHEST) {
-        // chests are trampolines; standing on one is not an option
-        static double last_boing = 0;
-        dy = 18;
-        if (glfwGetTime() - last_boing > 3) {
-            last_boing = glfwGetTime();
-            add_message("Boing!");
-        }
     }
     if (s->y < 0) {
         if (highest_block(s->x, s->z) < 0) {
@@ -3823,9 +3715,9 @@ void reset_model() {
     g->moon_gravity = 0;
     g->rainbow_mode = 0;
     g->rainbow_index = 0;
-    g->party_mode = 0;
     g->boost_dy = 0;
-    g->has_home = 0;
+    g->pending_module = -1;
+    g->pending_until = 0;
     cloudwalk_mode = 0;
     g->game_time = 0;
     g->cola_until = 0;
@@ -4085,9 +3977,9 @@ int main(int argc, char **argv) {
             // SELF REPAIR //
             g->integrity = MIN(100, g->integrity + dt * 0.35);
 
-            // PARTY MODE AND EXPIRED COFFEE //
+            // EXPIRED COFFEE //
             if (g->mode == MODE_OFFLINE) {
-                int disco = g->party_mode || g->game_time < g->coffee_until;
+                int disco = g->game_time < g->coffee_until;
                 g->day_length = disco ? 12 : DAY_LENGTH;
             }
 
@@ -4245,15 +4137,15 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < CLEARANCE_COUNT; i++) {
                     char part[64];
                     if (g->admin_defeated ||
-                        g->level >= clearances[i].level)
+                        (g->modules & (1 << i)))
                     {
                         snprintf(part, 64, " %s", clearances[i].command);
                         strncat(on_line, part,
                             sizeof(on_line) - strlen(on_line) - 1);
                     }
                     else {
-                        snprintf(part, 64, " %s(L%d)",
-                            clearances[i].command, clearances[i].level);
+                        snprintf(part, 64, " %s(%dc)",
+                            clearances[i].command, clearances[i].cost);
                         strncat(off_line, part,
                             sizeof(off_line) - strlen(off_line) - 1);
                     }

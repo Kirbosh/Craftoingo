@@ -113,20 +113,19 @@ from:
 
 #### Modules and where they take you
 
-Restoring modules is the progression: each level of honest work brings a
-subsystem back online, and each subsystem is a key to somewhere.
+Each restored subsystem is a key to somewhere.
 
-* `/zoomies` (level 1) — mobility. The island is ~350 blocks across;
+Modules are damaged hardware, restored by spending cells on your own
+chassis (run the command twice to confirm the repair):
+
+* `/overdrive` (30c) — drive overclock. The island is ~350 blocks across;
   now you can actually cover it.
-* `/rainbow` (level 2) — aesthetics. For building. No apologies.
-* `/party` (level 3) — the sky spins. Purely morale.
-* `/moon` (level 4) — low gravity. Chasms stop being walls; a trampoline
-  chest under low gravity is nearly a launch pad.
-* `/boom` (level 5) — demolition. The sealed dark-stone vaults with no
-  doors and no windows are full of crates, and now they open.
-* `/cloudwalk` (level 8) — the clouds become floor. Those dark squares you
-  can see from the ground, up on the cloud layer? Sky depots. Crates and a
-  working dispenser, at altitude.
+* `/color` (50c) — color fabrication, the only source of color panels.
+* `/lowmass` (80c) — mass compensator. Chasms stop being walls.
+* `/demolition` (120c) — the sealed dark-stone vaults with no doors and
+  no windows are full of crates, and now they open.
+* `/cloudwalk` (200c) — sky treads. Those dark squares up on the cloud
+  layer? Sky depots. Crates and a working dispenser, at altitude.
 
 Decommissioning HR-1 lifts the administrative lock and restores everything
 at once — the shortcut is guarded by the fight.
@@ -137,11 +136,6 @@ longer you are awake — and if you dig deep enough, they begin reporting
 things like a thermal anomaly with its source below, or rhythmic knocking
 with no source at all. That part is still being carved out.
 
-#### Free equipment
-
-No module needed for `/joke`, `/pigeon`, `/day`, `/night`, `/time H`,
-`/sethome` and `/home` — and a fresh questionable window title on every
-launch.
 
 ### Features (inherited from Craft)
 
@@ -293,21 +287,14 @@ Teleport back to the spawn point.
 
 List the Craftoingo extras in chat.
 
-    /zoomies
-    /rainbow
-    /party
-    /moon
-    /boom
+    /overdrive
+    /color
+    /lowmass
+    /demolition
     /cloudwalk
 
-Toggle triple speed, rainbow block placement, disco daylight, moon gravity,
-demolition punches, and solid clouds — in unlock order. Each requires the
-matching level clearance (1, 2, 3, 4, 5 and 8). All of them stack. You have
-been warned.
-
-    /pigeon
-
-Summon a colleague. It expects nothing from you.
+Toggle restored modules. Restoring one costs cells; run the command
+twice to confirm the repair.
 
     /day
     /night
